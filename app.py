@@ -205,48 +205,59 @@ if ws_hitos:
 
 st.divider()
 
-# --- 7. SPARE PARTS (REPUESTOS) ---
+# --- 7. SPARE PARTS INVENTORY (MODO CHECK + DINÁMICO) ---
 st.header("📦 Spare Parts Inventory (Repuestos)")
 ws_spare = conectar_hoja(client, "Repuestos")
 
 if ws_spare:
-    v_s = ws_spare.get_all_values()
-    df_s = pd.DataFrame(v_s[1:], columns=v_s[0]) if len(v_s) > 1 else pd.DataFrame(columns=["CATEGORIA", "DESCRIPCION", "UNIDADES"])
-    
-    # 1. FORMULARIO DE AÑADIR (SIEMPRE VISIBLE)
-    st.subheader("➕ Añadir Nuevo Repuesto")
-    with st.form("f_direct_add", clear_on_submit=True):
-        c1, c2, c3 = st.columns([2, 3, 1])
-        new_cat = c1.selectbox("Categoría", ["PANELS", "LV/MV COMPONENTS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"], key="new_cat")
-        new_ds = c2.text_input("Descripción del repuesto", key="new_ds")
-        new_un = c3.number_input("Unidades", min_value=1, value=1, key="new_un")
-        
-        if st.form_submit_button("🚀 Añadir a Inventario Ahora"):
-            if new_ds: # Validar que tenga nombre
-                ws_spare.append_row([new_cat, new_ds, str(new_un)])
-                st.success(f"Añadido: {new_ds}")
-                st.rerun()
-            else:
-                st.error("Por favor, escribe una descripción.")
+    try:
+        # 1. Obtener datos de la hoja
+        v_s = ws_spare.get_all_values()
+        if len(v_s) > 1:
+            df_s = pd.DataFrame(v_s[1:], columns=v_s[0])
+            # Aseguramos que la columna RECIBIDO exista y sea booleana para el check
+            if 'RECIBIDO' not in df_s.columns: 
+                df_s['RECIBIDO'] = "FALSE"
+            df_s['RECIBIDO'] = df_s['RECIBIDO'].astype(str).str.upper() == 'TRUE'
+        else:
+            df_s = pd.DataFrame(columns=["CATEGORIA", "DESCRIPCION", "UNIDADES", "RECIBIDO"])
 
-    st.divider()
+        st.info("💡 Haz clic en '+' al final de la tabla para añadir nuevos repuestos. No olvides Guardar.")
 
-    # 2. VISOR Y EDICIÓN
-    st.subheader("📋 Inventario Actual")
-    search = st.text_input("🔍 Filtrar lista...", "")
-    df_show = df_s[df_s['DESCRIPCION'].str.contains(search, case=False)] if search else df_s
-    
-    # Tabla para ver y editar cantidades
-    df_s_ed = st.data_editor(df_show, hide_index=True, use_container_width=True, key="ed_spare_new")
-    
-    # Solo mostramos el botón de guardar si el usuario realmente edita la tabla
-    if st.button("📝 Guardar cambios realizados en la tabla"):
-        if search: 
-            df_s.update(df_s_ed)
-            df_to_save = df_s
-        else: 
-            df_to_save = df_s_ed
-        ws_spare.clear()
-        ws_spare.update([df_to_save.columns.values.tolist()] + df_to_save.values.tolist())
-        st.success("Cambios guardados")
-        st.rerun()
+        # 2. Configuración de columnas (incluyendo el Checkbox)
+        config_spare = {
+            "CATEGORIA": st.column_config.SelectboxColumn(
+                "Categoría",
+                options=["PANELS", "LV/MV COMPONENTS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"],
+                required=True
+            ),
+            "DESCRIPCION": st.column_config.TextColumn("Descripción", required=True),
+            "UNIDADES": st.column_config.NumberColumn("Cant.", min_value=0, default=1),
+            "RECIBIDO": st.column_config.CheckboxColumn("Recibido/OK") # Aquí está la columna de check
+        }
+
+        # 3. TABLA TODO EN UNO (EDICIÓN + ALTA + CHECK)
+        df_s_ed = st.data_editor(
+            df_s, 
+            hide_index=True, 
+            use_container_width=True, 
+            num_rows="dynamic", # Permite añadir y borrar filas
+            column_config=config_spare,
+            key="dynamic_spare_check_editor"
+        )
+
+        # 4. BOTÓN DE GUARDADO SINCRONIZADO
+        if st.button("💾 Guardar Cambios en Inventario"):
+            # Limpiar filas vacías si el usuario creó una y no escribió nada
+            df_final = df_s_ed.dropna(subset=["DESCRIPCION"])
+            
+            # Convertir el booleano a texto "TRUE"/"FALSE" para Google Sheets
+            df_final['RECIBIDO'] = df_final['RECIBIDO'].astype(str).str.upper()
+            
+            ws_spare.clear()
+            ws_spare.update([df_final.columns.values.tolist()] + df_final.values.tolist())
+            st.success("¡Inventario y estados guardados correctamente!")
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"Error en Spare Parts: {e}")
