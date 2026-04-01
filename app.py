@@ -34,9 +34,7 @@ def calcular_avances():
         v_h = ws_hitos.get_all_values()
         if len(v_h) > 1:
             df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
-            # Limpiar porcentaje (quitar % y convertir a float)
             df_h['val'] = df_h['PORCENTAJE'].str.replace('%', '').str.replace(',', '.').astype(float)
-            # Sumar solo los pagados
             pagados = df_h[df_h['PAGADO'].str.upper() == 'TRUE']['val'].sum()
             total = df_h['val'].sum()
             if total > 0: pct_hitos = (pagados / total)
@@ -48,6 +46,7 @@ def calcular_avances():
         if data_t:
             df_t = pd.DataFrame(data_t)
             if 'Progress' in df_t.columns:
+                df_t['Progress'] = pd.to_numeric(df_t['Progress'], errors='coerce').fillna(0)
                 pct_tareas = df_t['Progress'].mean() / 100
                 
     return pct_hitos, pct_tareas
@@ -59,10 +58,10 @@ hitos_av, tareas_av = calcular_avances()
 
 col_v1, col_v2 = st.columns(2)
 with col_v1:
-    st.write(f"**Pagos Realizados: {hitos_av*100:.1f}%**")
+    st.write(f"**Payment Milestones: {hitos_av*100:.1f}%**")
     st.progress(min(hitos_av, 1.0))
 with col_v2:
-    st.write(f"**Progreso Físico Obra: {tareas_av*100:.1f}%**")
+    st.write(f"**Avance Obra: {tareas_av*100:.1f}%**")
     st.progress(min(tareas_av, 1.0))
 
 st.divider()
@@ -86,7 +85,7 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
         st.text_input("Nombre del alimentador", "DUAO 15 KV")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
-# --- 3. SECCIÓN TAREAS (GANTT) ---
+# --- 3. CRONOGRAMA (GANTT) ---
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
 if ws_tareas:
@@ -116,57 +115,50 @@ if ws_tareas:
         
         st.subheader("📝 Gestión de Tareas")
         df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True)
-        if st.button("💾 Sincronizar Cambios de Tabla"):
+        if st.button("💾 Sincronizar Tareas"):
             df_save = df_t_edit.copy()
             df_save['Start'] = df_save['Start'].dt.strftime('%d/%m/%Y')
             df_save['End'] = df_save['End'].dt.strftime('%d/%m/%Y')
             ws_tareas.clear(); ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist()); st.rerun()
 
-        c_add, c_del = st.columns(2)
-        with c_add:
-            with st.expander("➕ Añadir Nueva Tarea"):
-                with st.form("f_add_task"):
-                    nt = st.text_input("Nombre Tarea"); ne = st.text_input("Empresa"); nl = st.selectbox("Nivel", [0,1,2])
-                    if st.form_submit_button("Añadir a la lista"):
-                        ws_tareas.append_row([len(df_t), nt, nl, 0, ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(5)).strftime('%d/%m/%Y')])
-                        st.rerun()
-        with c_del:
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.expander("➕ Añadir Tarea"):
+                with st.form("f_t"):
+                    nt = st.text_input("Tarea"); ne = st.text_input("Empresa"); nl = st.selectbox("Nivel", [0,1,2])
+                    if st.form_submit_button("Agregar"):
+                        ws_tareas.append_row([len(df_t), nt, nl, 0, ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(5)).strftime('%d/%m/%Y')]); st.rerun()
+        with c2:
             with st.expander("🗑️ Eliminar Tarea"):
-                t_b = st.selectbox("Tarea a eliminar", ["---"] + df_t['Task'].tolist())
-                if st.button("Eliminar Definitivamente"):
+                t_b = st.selectbox("Tarea", ["---"] + df_t['Task'].tolist())
+                if st.button("Confirmar Borrado"):
                     df_f = df_t[df_t['Task'] != t_b].copy(); df_f['id'] = range(len(df_f))
                     ws_tareas.clear(); df_f['Start'] = df_f['Start'].dt.strftime('%d/%m/%Y'); df_f['End'] = df_f['End'].dt.strftime('%d/%m/%Y')
                     ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist()); st.rerun()
 
 st.divider()
 
-# --- 4. SECCIÓN RED (IPs) ---
+# --- 4. RED E IPs ---
 st.header("🌐 Configuración de Red e IPs")
 ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
-    if 'ESTADO' in df_r.columns:
-        df_r['ESTADO'] = df_r['ESTADO'].apply(lambda x: str(x).upper() == 'TRUE')
-    
+    if 'ESTADO' in df_r.columns: df_r['ESTADO'] = df_r['ESTADO'].apply(lambda x: str(x).upper() == 'TRUE')
     df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
-    
     if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
         ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
-
-    with st.expander("➕ Añadir Equipo a la Red"):
-        with st.form("f_add_ip"):
-            f1, f2, f3, f4 = st.columns(4)
-            p, r, m, u = f1.text_input("Proveedor"), f2.text_input("Ref"), f3.text_input("Marca"), f4.text_input("Uso")
-            ip_val = st.text_input("IP")
-            if st.form_submit_button("Registrar IP"):
-                ws_red.append_row([p, r, m, u, ip_val, "FALSE"]); st.rerun()
+    with st.expander("➕ Añadir IP"):
+        with st.form("f_ip"):
+            f1, f2, f3, f4, f5 = st.columns(5)
+            p = f1.text_input("Prov"); r = f2.text_input("Ref"); m = f3.text_input("Marca"); u = f4.text_input("Uso"); ip = f5.text_input("IP")
+            if st.form_submit_button("Añadir"): ws_red.append_row([p, r, m, u, ip, "FALSE"]); st.rerun()
 
 st.divider()
 
-# --- 5. SECCIÓN CREDENCIALES ---
-st.header("🔑 Credenciales de Planta")
+# --- 5. CREDENCIALES ---
+st.header("🔑 Credenciales")
 ws_creds = conectar_hoja(client, "Credenciales")
 if ws_creds:
     v_c = ws_creds.get_all_values()
@@ -174,54 +166,56 @@ if ws_creds:
     df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True)
     if st.button("💾 Guardar Credenciales"):
         ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.values.tolist()); st.rerun()
-    
     with st.expander("➕ Añadir Credencial"):
-        with st.form("f_creds"):
-            c1, c2 = st.columns(2)
-            ce, cp, cu, cpw = c1.text_input("Empresa"), c2.text_input("Plataforma"), c1.text_input("Usuario"), c2.text_input("Contraseña")
-            if st.form_submit_button("Registrar Credencial"):
-                ws_creds.append_row([ce, cp, cu, cpw]); st.rerun()
+        with st.form("f_c"):
+            c1, c2, c3, c4 = st.columns(4)
+            ce = c1.text_input("Empresa"); cp = c2.text_input("Plat"); cu = c3.text_input("User"); cpw = c4.text_input("Pass")
+            if st.form_submit_button("Añadir"): ws_creds.append_row([ce, cp, cu, cpw]); st.rerun()
 
 st.divider()
 
-# --- 6. SECCIÓN HITOS DE PAGO ---
+# --- 6. HITOS DE PAGO ---
 st.header("💰 Hitos de Pago (Payment Milestones)")
 ws_hitos = conectar_hoja(client, "Hitos")
 if ws_hitos:
-    try:
-        v_h = ws_hitos.get_all_values()
-        if len(v_h) > 1:
-            df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
-            if 'PAGADO' not in df_h.columns: df_h['PAGADO'] = "FALSE"
-            df_h['PAGADO'] = df_h['PAGADO'].astype(str).str.upper() == 'TRUE'
-        else:
-            df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
+    v_h = ws_hitos.get_all_values()
+    if len(v_h) > 1:
+        df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
+        df_h['PAGADO'] = df_h['PAGADO'].astype(str).str.upper() == 'TRUE'
+    else: df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
 
-        t1, t2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
-        cfg_h = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "PORCENTAJE": st.column_config.TextColumn("Cuota %")}
+    t1, t2 = st.tabs(["🚢 Offshore", "🏗️ Onshore"])
+    cfg_h = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "PORCENTAJE": st.column_config.TextColumn("Cuota %")}
+    with t1:
+        df_off = df_h[df_h["TIPO"] == "Offshore"].copy()
+        ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
+    with t2:
+        df_on = df_h[df_h["TIPO"] == "Onshore"].copy()
+        ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
 
-        with t1:
-            df_off = df_h[df_h["TIPO"] == "Offshore"].copy()
-            ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", 
-                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
-        with t2:
-            df_on = df_h[df_h["TIPO"] == "Onshore"].copy()
-            ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", 
-                                  column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
+    if st.button("💾 Guardar Hitos"):
+        ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"; df_final = pd.concat([ed_off, ed_on])
+        df_final['PAGADO'] = df_final['PAGADO'].astype(str).str.upper()
+        ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist()); st.rerun()
+    with st.expander("➕ Añadir Hito"):
+        with st.form("f_h"):
+            c1, c2, c3 = st.columns(3)
+            ht = c1.selectbox("Tipo", ["Offshore", "Onshore"]); hn = c2.text_input("Hito"); hp = c3.text_input("%")
+            if st.form_submit_button("Añadir"): ws_hitos.append_row([ht, hn, hp, "FALSE"]); st.rerun()
 
-        if st.button("💾 Guardar Cambios en Hitos"):
-            ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"
-            df_final = pd.concat([ed_off, ed_on])
-            df_final['PAGADO'] = df_final['PAGADO'].astype(str).str.upper()
-            ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist()); st.rerun()
-            
-        with st.expander("➕ Añadir Nuevo Hito"):
-            with st.form("f_add_hito"):
-                c_h1, c_h2, c_h3 = st.columns(3)
-                h_tipo = c_h1.selectbox("Tipo", ["Offshore", "Onshore"])
-                h_nombre = c_h2.text_input("Descripción Hito")
-                h_pct = c_h3.text_input("Porcentaje (ej: 10%)")
-                if st.form_submit_button("Añadir Hito"):
-                    ws_hitos.append_row([h_tipo, h_nombre, h_pct, "FALSE"]); st.rerun()
-    except Exception as e:
-        st.error(f"Error: {e}")
+st.divider()
+
+# --- 7. SPARE PARTS (REPUESTOS) ---
+st.header("📦 Spare Parts Inventory (Repuestos)")
+ws_spare = conectar_hoja(client, "Repuestos")
+if ws_spare:
+    v_s = ws_spare.get_all_values()
+    df_s = pd.DataFrame(v_s[1:], columns=v_s[0]) if len(v_s) > 1 else pd.DataFrame(columns=["CATEGORIA", "DESCRIPCION", "UNIDADES"])
+    
+    search = st.text_input("🔍 Buscar repuesto...", "")
+    df_show = df_s[df_s['DESCRIPCION'].str.contains(search, case=False)] if search else df_s
+    
+    df_s_ed = st.data_editor(df_show, hide_index=True, use_container_width=True, key="ed_spare")
+    
+    if st.button("💾 Guardar Inventario"):
+        if search: df
