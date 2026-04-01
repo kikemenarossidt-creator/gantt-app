@@ -3,75 +3,35 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Jerárquico Profesional")
+st.set_page_config(layout="wide", page_title="Gantt Jerárquico Dinámico")
 
-# ---------- 1. BASE DE DATOS COMPLETA (TODAS LAS TAREAS) ----------
+# ---------- 1. BASE DE DATOS INICIAL ----------
 if "df" not in st.session_state:
     base = datetime(2026, 4, 1)
-    
+    # Lista inicial de tareas (todas las 12 categorías)
     tasks_data = [
-        {"Task": "01: INSTALACIÓN ELÉCTRICA", "Level": 0, "Parent": None},
-        {"Task": "01.1: Tendido Eléctrico BT", "Level": 1, "Parent": "01: INSTALACIÓN ELÉCTRICA"},
-        {"Task": "01.1.1: Cuadro protecciones SC", "Level": 2, "Parent": "01.1: Tendido Eléctrico BT"},
-        {"Task": "01.1.2: Cuadro Comunicaciones SC", "Level": 2, "Parent": "01.1: Tendido Eléctrico BT"},
-        {"Task": "01.1.3: Cuadro Sensores SC", "Level": 2, "Parent": "01.1: Tendido Eléctrico BT"},
-        {"Task": "01.2: Puestas a Tierra", "Level": 1, "Parent": "01: INSTALACIÓN ELÉCTRICA"},
-        {"Task": "01.2.1: Vallado Eléctrico", "Level": 2, "Parent": "01.2: Puestas a Tierra"},
-        {"Task": "01.3: Pruebas Eléctricas", "Level": 1, "Parent": "01: INSTALACIÓN ELÉCTRICA"},
-        {"Task": "01.3.1: Pruebas Aislamiento", "Level": 2, "Parent": "01.3: Pruebas Eléctricas"},
-
-        {"Task": "02: COMUNICACIONES", "Level": 0, "Parent": None},
-        {"Task": "02.1: Tendido Cableado Datos", "Level": 1, "Parent": "02: COMUNICACIONES"},
-        {"Task": "02.1.1: Configuración Router", "Level": 2, "Parent": "02.1: Tendido Cableado Datos"},
-        {"Task": "02.1.2: Antena / FO", "Level": 2, "Parent": "02.1: Tendido Cableado Datos"},
-
-        {"Task": "03: SENSORES", "Level": 0, "Parent": None},
-        {"Task": "03.1: Instalación Equipos", "Level": 1, "Parent": "03: SENSORES"},
-        {"Task": "03.1.1: Soportes Piranómetros", "Level": 2, "Parent": "03.1: Instalación Equipos"},
-        {"Task": "03.1.2: Sensores Temp", "Level": 2, "Parent": "03.1: Instalación Equipos"},
-
-        {"Task": "04: MONTAJE ESTRUCTURAS", "Level": 0, "Parent": None},
-        {"Task": "04.1: Hincado", "Level": 1, "Parent": "04: MONTAJE ESTRUCTURAS"},
-        {"Task": "04.2: Montaje Perfiles", "Level": 1, "Parent": "04: MONTAJE ESTRUCTURAS"},
-        {"Task": "04.2.1: Montaje Módulos", "Level": 2, "Parent": "04.2: Montaje Perfiles"},
-
-        {"Task": "05: TRACKERS Y TSM", "Level": 0, "Parent": None},
-        {"Task": "05.1: Instalación TSM", "Level": 1, "Parent": "05: TRACKERS Y TSM"},
-        {"Task": "05.2: Comisionado Tracker", "Level": 1, "Parent": "05: TRACKERS Y TSM"},
-
-        {"Task": "06: CTs", "Level": 0, "Parent": None},
-        {"Task": "06.1: Instalación Celdas", "Level": 1, "Parent": "06: CTs"},
-        {"Task": "06.2: Conexionado MT/BT", "Level": 1, "Parent": "06: CTs"},
-
-        {"Task": "07: CCTV", "Level": 0, "Parent": None},
-        {"Task": "07.1: Montaje Cámaras", "Level": 1, "Parent": "07: CCTV"},
-        {"Task": "07.2: Configuración NVR", "Level": 1, "Parent": "07: CCTV"},
-
-        {"Task": "08: SEGURIDAD", "Level": 0, "Parent": None},
-        {"Task": "08.1: Cercado Perimetral", "Level": 1, "Parent": "08: SEGURIDAD"},
-        {"Task": "08.2: Sistemas Alarma", "Level": 1, "Parent": "08: SEGURIDAD"},
-
-        {"Task": "09: ENTRONQUE", "Level": 0, "Parent": None},
-        {"Task": "09.1: Montaje Reconectador", "Level": 1, "Parent": "09: ENTRONQUE"},
-        {"Task": "09.2: Medidor Energía", "Level": 1, "Parent": "09: ENTRONQUE"},
-
+        {"Task": "1: INSTALACIÓN ELÉCTRICA", "Level": 0, "Parent": None},
+        {"Task": "Tendido Eléctrico BT", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
+        {"Task": "Cuadro protecciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
+        {"Task": "Cuadro Comunicaciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
+        {"Task": "Puestas a Tierra", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
+        {"Task": "2: COMUNICACIONES", "Level": 0, "Parent": None},
+        {"Task": "Tendido Cableado Datos", "Level": 1, "Parent": "2: COMUNICACIONES"},
+        {"Task": "3: SENSORES", "Level": 0, "Parent": None},
+        {"Task": "4: MONTAJE ESTRUCTURAS", "Level": 0, "Parent": None},
+        {"Task": "5: TRACKERS Y TSM", "Level": 0, "Parent": None},
+        {"Task": "6: CTs", "Level": 0, "Parent": None},
+        {"Task": "7: CCTV", "Level": 0, "Parent": None},
+        {"Task": "8: SEGURIDAD", "Level": 0, "Parent": None},
+        {"Task": "9: ENTRONQUE", "Level": 0, "Parent": None},
         {"Task": "10: PEM (CONEXIONADO)", "Level": 0, "Parent": None},
-        {"Task": "10.1: Protocolos Pruebas", "Level": 1, "Parent": "10: PEM (CONEXIONADO)"},
-        {"Task": "10.2: Energización", "Level": 1, "Parent": "10: PEM (CONEXIONADO)"},
-
         {"Task": "11: PERMISOS", "Level": 0, "Parent": None},
-        {"Task": "11.1: Tramitación SEC", "Level": 1, "Parent": "11: PERMISOS"},
-        {"Task": "11.2: Recepción Municipal", "Level": 1, "Parent": "11: PERMISOS"},
-
-        {"Task": "12: SERVICIOS", "Level": 0, "Parent": None},
-        {"Task": "12.1: Limpieza Módulos", "Level": 1, "Parent": "12: SERVICIOS"},
-        {"Task": "12.2: Entrega Obra", "Level": 1, "Parent": "12: SERVICIOS"}
+        {"Task": "12: SERVICIOS", "Level": 0, "Parent": None}
     ]
-    
     rows = []
     for i, t in enumerate(tasks_data):
         rows.append({
-            "id": i,
+            "id": float(i), # Usamos float para permitir ordenación precisa
             "Task": t["Task"],
             "Level": t["Level"],
             "Parent": t["Parent"],
@@ -87,7 +47,6 @@ def update_hierarchical_dates(df):
     df['End'] = pd.to_datetime(df['End'])
     
     calculated = {}
-
     def compute_dates(task_name):
         children = df[df['Parent'] == task_name]
         if children.empty:
@@ -100,7 +59,6 @@ def update_hierarchical_dates(df):
                 starts.append(s)
                 ends.append(e)
             start, end = min(starts), max(ends)
-        
         calculated[task_name] = (start, end)
         return start, end
 
@@ -112,31 +70,24 @@ def update_hierarchical_dates(df):
         df.loc[df['Task'] == task, 'End'] = end
     return df
 
-# ---------- 3. PROCESAMIENTO, ORDEN Y FILTRADO ----------
-# Recalcular fechas
+# ---------- 3. PROCESAMIENTO Y ORDEN ----------
+# Ordenamos por el ID actual para mantener la secuencia de filas
+st.session_state.df = st.session_state.df.sort_values(by="id").reset_index(drop=True)
 st.session_state.df = update_hierarchical_dates(st.session_state.df)
 
-# ORDENAR ALFABÉTICAMENTE para que las nuevas tareas se agrupen con sus padres
-st.session_state.df = st.session_state.df.sort_values(by="Task").reset_index(drop=True)
-
-st.sidebar.header("Configuración de Vista")
+st.sidebar.header("Vista")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
 
 df_chart = st.session_state.df.copy()
 df_chart = df_chart[df_chart['Level'] <= profundidad].copy()
-
-# Sangría visual (Usa el orden alfabético actual)
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 6 * int(x['Level']) + x['Task'], axis=1)
 
-# ---------- 4. GRÁFICO ALTAIR ----------
+# ---------- 4. GRÁFICO ----------
 h = len(df_chart) * 25
-# Usamos sort=None para que respete el orden alfabético del DataFrame
-col_config = {"y": alt.Y('Task:N', axis=None, sort=None)}
+# IMPORTANTE: Ordenamos por 'id' que ahora es nuestra secuencia de filas
+col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 
-base_text = alt.Chart(df_chart).encode(
-    text='Display_Task:N',
-    **col_config
-).properties(width=350, height=h)
+base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=350, height=h)
 
 text_layer = alt.layer(
     base_text.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold'),
@@ -153,35 +104,49 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
 
 st.altair_chart(alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=None))
 
-# ---------- 5. EDITOR MAESTRO ----------
+# ---------- 5. EDITOR ----------
 st.divider()
-st.subheader("📝 Editor de Tareas")
 edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
-
 if not edited_df.equals(st.session_state.df):
     st.session_state.df = update_hierarchical_dates(edited_df)
     st.rerun()
 
-# ---------- 6. AÑADIR TAREAS ----------
-with st.expander("➕ Añadir Nueva Tarea"):
+# ---------- 6. LÓGICA DE INSERCIÓN (REORDENAR IDs) ----------
+with st.expander("➕ Añadir Tarea en su grupo"):
     c1, c2 = st.columns(2)
-    new_name = c1.text_input("Nombre (ej: 01.4: Nueva Tarea)")
+    new_name = c1.text_input("Nombre de la tarea")
     new_level = c1.selectbox("Nivel", [0, 1, 2])
-    
     parents = [None] + st.session_state.df[st.session_state.df['Level'] < new_level]['Task'].tolist()
     new_parent = c2.selectbox("Padre", parents)
     
-    new_start = c2.date_input("Inicio")
-    new_end = c2.date_input("Fin")
+    if st.button("Insertar Tarea"):
+        df = st.session_state.df.copy()
+        
+        # 1. Encontrar dónde debe ir (justo después del padre o de su último hijo)
+        if new_parent:
+            # Buscamos la última tarea que pertenece a ese grupo
+            indices_grupo = df[(df['Task'] == new_parent) | (df['Parent'] == new_parent)].index
+            insert_pos = indices_grupo.max() + 1
+        else:
+            insert_pos = len(df)
 
-    if st.button("Añadir"):
+        # 2. Desplazar todos los IDs que van después de esa posición
+        df.loc[df.index >= insert_pos, 'id'] += 1
+        
+        # 3. Crear la nueva fila con el ID que quedó libre
         new_row = pd.DataFrame([{
-            "id": st.session_state.df['id'].max() + 1,
+            "id": float(insert_pos),
             "Task": new_name,
             "Level": new_level,
             "Parent": new_parent,
-            "Start": pd.to_datetime(new_start),
-            "End": pd.to_datetime(new_end)
+            "Start": df['Start'].min(), 
+            "End": df['Start'].min() + timedelta(days=2)
         }])
-        st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+        
+        # 4. Combinar y re-ordenar todo
+        st.session_state.df = pd.concat([df, new_row]).sort_values(by="id").reset_index(drop=True)
+        # Re-indexar IDs para que sean enteros limpios (0, 1, 2, 3...)
+        st.session_state.df['id'] = range(len(st.session_state.df))
+        
+        st.success(f"Tarea insertada en la posición {insert_pos}")
         st.rerun()
