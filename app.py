@@ -3,7 +3,7 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Profesional Compacto")
+st.set_page_config(layout="wide", page_title="Gantt Estilo Excel")
 
 # 1. BASE DE DATOS COMPLETA
 if "df" not in st.session_state:
@@ -16,9 +16,9 @@ if "df" not in st.session_state:
         ("Alimentaciones Cuadros Seguridad", 2), ("Alimentación Rack", 2),
         ("Alimentación Alumbrado y Secundarios", 2), ("Puestas a Tierra", 1),
         ("Vallado", 2), ("TSMs", 2), ("Box TSM", 2), ("CCTV", 2), ("Vallado CT", 2),
-        ("2: COMUNICACIONES", 0), ("Tendido Cableado", 1), ("Internet", 1),
-        ("3: SENSORES", 0), ("5: TRACKERS Y TSM", 0), ("6: CTs", 0), ("7: CCTV", 0),
-        ("8: SEGURIDAD", 0), ("9: ENTRONQUE", 0), ("10: PEM", 0), ("11: PERMISOS", 0), ("12: SERVICIOS", 0)
+        ("2: COMUNICACIONES", 0), ("Tendido Cableado", 1), ("3: SENSORES", 0), 
+        ("5: TRACKERS Y TSM", 0), ("6: CTs", 0), ("7: CCTV", 0), ("8: SEGURIDAD", 0),
+        ("9: ENTRONQUE", 0), ("10: PEM", 0), ("11: PERMISOS", 0), ("12: SERVICIOS", 0)
     ]
     
     rows = []
@@ -34,22 +34,29 @@ if "df" not in st.session_state:
 
 df = st.session_state.df.copy()
 
-# --- EL TRUCO PARA EL ESCALONADO COMPACTO ---
-# Calculamos el desplazamiento físico (padding) en una columna nueva
-# Nivel 0 = 0px, Nivel 1 = 15px, Nivel 2 = 30px
-df['padding'] = df['Level'] * 15
+# --- SOLUCIÓN DEFINITIVA PARA EL ESCALONADO ---
+# Usamos un espacio especial (Unicode \u00A0) para crear la sangría física real
+def create_indent(row):
+    # 3 espacios por cada nivel de jerarquía
+    indent = "\u00A0" * (row['Level'] * 6)
+    return f"{indent}{row['Task']}"
+
+df['Task_Indent'] = df.apply(create_indent, axis=1)
 
 # 2. GRÁFICO
 h = len(df) * 22
 
-# Columna de nombres con desplazamiento calculado desde Pandas
-task_labels = alt.Chart(df).mark_text(align='left', size=11).encode(
+# Columna de nombres (Ahora es una sola columna con el espacio ya incluido)
+task_labels = alt.Chart(df).mark_text(
+    align='left', 
+    size=11,
+    baseline='middle'
+).encode(
     y=alt.Y('id:O', axis=None, sort='ascending'),
-    text='Task:N',
-    x=alt.X('padding:Q', axis=None), # Usamos una escala cuantitativa invisible para la posición X
+    text='Task_Indent:N',
     fontWeight=alt.condition('datum.Level == 0', alt.value('bold'), alt.value('normal')),
     color=alt.condition('datum.Level == 2', alt.value('#666'), alt.value('black'))
-).properties(width=350, height=h)
+).properties(width=400, height=h) # Ajusta este width si los nombres son muy largos
 
 # Barras del cronograma
 bars = alt.Chart(df).mark_bar(cornerRadius=2, size=16).encode(
@@ -59,8 +66,8 @@ bars = alt.Chart(df).mark_bar(cornerRadius=2, size=16).encode(
     color=alt.Color('Level:N', scale=alt.Scale(range=['#004e92', '#00a1ff', '#b3e0ff']), legend=None)
 ).properties(width=600, height=h)
 
-# Concatenamos con un espacio mínimo (spacing=5) para que estén pegados
-layout = alt.hconcat(task_labels, bars, spacing=5).configure_view(stroke=None)
+# Unimos con spacing=0 para que el texto y la barra parezcan la misma fila de Excel
+layout = alt.hconcat(task_labels, bars, spacing=10).configure_view(stroke=None)
 
 st.altair_chart(layout, use_container_width=False)
 
