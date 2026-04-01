@@ -120,4 +120,23 @@ col1 = alt.Chart(df).mark_text(align='left', dx=10, size=10).encode(
 
 # Columna Nivel 2: Sub-tareas Detalladas
 col2 = alt.Chart(df).mark_text(align='left', dx=20, fontStyle='italic', size=10, color='#444').encode(
-    y=alt.Y
+    y=alt.Y('id:O', axis=None, sort='ascending'),
+    text='L2:N'
+).properties(width=220, height=h)
+
+# Barras de Cronograma
+bars = alt.Chart(df).mark_bar(cornerRadius=1, size=15).encode(
+    x=alt.X('Start:T', axis=alt.Axis(title=None, format='%d/%m')),
+    x2='End:T',
+    y=alt.Y('id:O', axis=None, sort='ascending'),
+    color=alt.Color('Level:N', scale=alt.Scale(range=['#004e92', '#00a1ff', '#b3e0ff']), legend=None)
+).properties(width=550, height=h)
+
+# Unión H-Concat (Sin espacios entre columnas de nombres)
+gantt = alt.hconcat(col0, col1, col2, bars, spacing=0).configure_view(stroke=None)
+
+st.altair_chart(gantt, use_container_width=False)
+
+# 4. TABLA EDITOR (Para que puedas modificar fechas y nombres)
+st.subheader("📝 Listado Completo de Obra (Editable)")
+st.session_state.df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
