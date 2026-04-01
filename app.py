@@ -162,21 +162,32 @@ if ws_hitos:
             df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
 
         t1, t2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
-        cfg = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "PORCENTAJE": st.column_config.TextColumn("Cuota %")}
+        
+        # Configuración de columnas (incluimos el checkbox aquí)
+        cfg = {
+            "PAGADO": st.column_config.CheckboxColumn("Pagado"), 
+            "PORCENTAJE": st.column_config.TextColumn("Cuota %")
+        }
 
         with t1:
             df_off = df_h[df_h["TIPO"] == "Offshore"]
+            # Añadimos hide_index=True para quitar la columna vacía del principio
             ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", 
-                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg, num_rows="dynamic")
+                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), 
+                                   column_config=cfg, num_rows="dynamic")
         with t2:
             df_on = df_h[df_h["TIPO"] == "Onshore"]
+            # Añadimos hide_index=True aquí también
             ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", 
-                                  column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg, num_rows="dynamic")
+                                  column_order=("HITO", "PORCENTAJE", "PAGADO"), 
+                                  column_config=cfg, num_rows="dynamic")
 
         if st.button("💾 Guardar Hitos de Pago"):
             ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"
             df_final = pd.concat([ed_off, ed_on])
             df_final['PAGADO'] = df_final['PAGADO'].astype(str).upper()
-            ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist()); st.success("Hitos guardados"); st.rerun()
+            ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist())
+            st.success("Hitos guardados correctamente"); st.rerun()
+            
     except Exception as e:
         st.error(f"Error: {e}")
