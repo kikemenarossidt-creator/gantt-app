@@ -43,7 +43,7 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=True):
         st.text_input("Nombre del alimentador", "DUAO 15 KV")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
-# --- 2. SECCIÓN TAREAS (GANTT) ---
+# --- 2. SECCIÓN TAREAS ---
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
 if ws_tareas:
@@ -105,38 +105,43 @@ if ws_creds:
     if st.button("💾 Guardar Credenciales"):
         ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.values.tolist()); st.rerun()
 
-# --- 5. SECCIÓN HITOS DE PAGO (MILESTONES) ---
+# --- 5. SECCIÓN HITOS DE PAGO ---
 st.header("💰 Hitos de Pago (Payment Milestones)")
 ws_hitos = conectar_hoja(client, "Hitos")
-
 if ws_hitos:
     v_h = ws_hitos.get_all_values()
-    # Si la hoja está vacía, creamos estructura mínima sin datos inventados
-    if len(v_h) < 1:
-        df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE"])
-    else:
+    if len(v_h) > 1:
         df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
+        # Convertir columna PAGADO a booleano para el checkbox
+        df_h['PAGADO'] = df_h['PAGADO'].apply(lambda x: str(x).upper() == 'TRUE')
+    else:
+        df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
 
     t1, t2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
     
+    config_hitos = {
+        "PAGADO": st.column_config.CheckboxColumn("Estado Pago"),
+        "PORCENTAJE": st.column_config.TextColumn("Cuota %")
+    }
+
     with t1:
-        # Filtramos solo Offshore y ocultamos la columna TIPO
         df_off = df_h[df_h["TIPO"] == "Offshore"]
         ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", 
-                               column_order=("HITO", "PORCENTAJE"), num_rows="dynamic")
+                               column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=config_hitos, num_rows="dynamic")
     with t2:
-        # Filtramos solo Onshore y ocultamos la columna TIPO
         df_on = df_h[df_h["TIPO"] == "Onshore"]
         ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", 
-                              column_order=("HITO", "PORCENTAJE"), num_rows="dynamic")
+                              column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=config_hitos, num_rows="dynamic")
 
-    if st.button("💾 Guardar Hitos"):
-        # Asignamos el TIPO a cada tabla antes de unir
+    if st.button("💾 Guardar Hitos de Pago"):
         ed_off["TIPO"] = "Offshore"
         ed_on["TIPO"] = "Onshore"
         df_final = pd.concat([ed_off, ed_on])
         
+        # Convertir booleano a texto antes de enviar a Google
+        df_final['PAGADO'] = df_final['PAGADO'].astype(str).upper()
+        
         ws_hitos.clear()
         ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist())
-        st.success("Hitos sincronizados con Excel")
+        st.success("Hitos actualizados correctamente")
         st.rerun()
