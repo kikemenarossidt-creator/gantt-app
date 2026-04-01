@@ -33,16 +33,14 @@ if "df" not in st.session_state:
         })
     st.session_state.df = pd.DataFrame(rows)
 
-# ---------- 2. FUNCIÓN RECURSIVA DE FECHAS (CORRECTA) ----------
+# ---------- 2. FUNCIÓN RECURSIVA DE FECHAS ----------
 def update_hierarchical_dates(df):
     df = df.copy()
     if 'Parent' not in df.columns:
         df['Parent'] = None
 
-    # Diccionario temporal para almacenar fechas calculadas
     calculated = {}
 
-    # Función recursiva que devuelve (start, end) de un nodo considerando todos sus hijos
     def compute_dates(task_name):
         children = df[df['Parent'] == task_name]
         if children.empty:
@@ -58,30 +56,40 @@ def update_hierarchical_dates(df):
         calculated[task_name] = (start, end)
         return start, end
 
-    # Ejecutar recursivamente para todos los niveles 0
     for root in df[df['Level'] == 0]['Task']:
         compute_dates(root)
 
-    # Aplicar fechas calculadas
     for task, (start, end) in calculated.items():
         df.loc[df['Task'] == task, 'Start'] = start
         df.loc[df['Task'] == task, 'End'] = end
 
     return df
 
-# ---------- 3. ACTUALIZAR FECHAS ----------
 st.session_state.df = update_hierarchical_dates(st.session_state.df)
-df_chart = st.session_state.df.copy()
 
-# ---------- 4. FILTRADO POR NIVEL ----------
+# ---------- 3. FUNCION PARA ORDEN JERÁRQUICO ----------
+def build_hierarchical_order(df, parent=None):
+    result = []
+    children = df[df['Parent'] == parent].sort_values('Task')
+    for _, row in children.iterrows():
+        result.append(row['id'])
+        result.extend(build_hierarchical_order(df, row['Task']))
+    return result
+
+# ---------- 4. FILTRADO Y ORDEN PARA GRAFICO ----------
 st.sidebar.header("Vista de Diagrama")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
-df_chart = df_chart[df_chart['Level'] <= profundidad].copy()
+
+df_chart = st.session_state.df[st.session_state.df['Level'] <= profundidad].copy()
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 4 * int(x['Level']) + x['Task'], axis=1)
+
+# Orden jerárquico
+hier_order = build_hierarchical_order(st.session_state.df)
+df_chart = df_chart.set_index('id').loc[[i for i in hier_order if i in df_chart['id']]].reset_index()
 
 # ---------- 5. GRÁFICO ALTair ----------
 h = len(df_chart) * 25
-col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
+col_config = {"y": alt.Y('id:O', axis=None, sort=hier_order)}
 
 base_text = alt.Chart(df_chart).encode(
     text='Display_Task:N',
@@ -103,7 +111,7 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=2).encode(
 
 st.altair_chart(alt.hconcat(text_layer, bars, spacing=10).configure_view(stroke=None))
 
-# ---------- 6. EDITOR MAESTRO Y AÑADIR TAREAS ----------
+# ---------- 6. EDITOR Y AÑADIR TAREAS ----------
 st.divider()
 st.subheader("📝 Editor y Añadir Tareas")
 
@@ -131,5 +139,6 @@ with st.expander("➕ Añadir Nueva Tarea"):
             "Start": pd.Timestamp(new_task_start),
             "End": pd.Timestamp(new_task_end)
         }
+        # Actualizar fechas jerárquicas automáticamente
         st.session_state.df = update_hierarchical_dates(st.session_state.df)
         st.success(f"Tarea '{new_task_name}' añadida correctamente.")
