@@ -45,7 +45,7 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
 
 st.divider()
 
-# --- 2. SECCIÓN TAREAS (DISEÑO ORIGINAL RECUPERADO) ---
+# --- 2. SECCIÓN TAREAS ---
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
 if ws_tareas:
@@ -55,7 +55,6 @@ if ws_tareas:
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
         
-        # Gráfica Gantt con Sangrías
         prof = st.sidebar.slider("Detalle Gantt (Nivel)", 0, 2, 2)
         df_p = df_t[df_t['Level'] <= prof].copy()
         df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
@@ -106,7 +105,7 @@ c_net1, c_net2 = st.columns(2)
 with c_net1: st.text_input("Net mask:", value="255.255.255.0", key="nm_in")
 with c_net2: st.text_input("Gateway:", value="192.168.30.1", key="gw_in")
 
-ws_red = conectar_hoja(client, "Red")
+ws_red = conectar_ho_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
@@ -148,7 +147,7 @@ if ws_creds:
 
 st.divider()
 
-# --- 5. SECCIÓN HITOS DE PAGO ---
+# --- 5. SECCIÓN HITOS DE PAGO (NUEVO DISEÑO LIMPIO) ---
 st.header("💰 Hitos de Pago (Payment Milestones)")
 ws_hitos = conectar_hoja(client, "Hitos")
 if ws_hitos:
@@ -161,33 +160,34 @@ if ws_hitos:
         else:
             df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
 
-        t1, t2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
-        
-        # Configuración de columnas (incluimos el checkbox aquí)
-        cfg = {
-            "PAGADO": st.column_config.CheckboxColumn("Pagado"), 
-            "PORCENTAJE": st.column_config.TextColumn("Cuota %")
-        }
+        tab1, tab2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
+        cfg_hitos = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "PORCENTAJE": st.column_config.TextColumn("Cuota %")}
 
-        with t1:
+        with tab1:
             df_off = df_h[df_h["TIPO"] == "Offshore"]
-            # Añadimos hide_index=True para quitar la columna vacía del principio
             ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", 
-                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), 
-                                   column_config=cfg, num_rows="dynamic")
-        with t2:
+                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_hitos)
+        with tab2:
             df_on = df_h[df_h["TIPO"] == "Onshore"]
-            # Añadimos hide_index=True aquí también
             ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", 
-                                  column_order=("HITO", "PORCENTAJE", "PAGADO"), 
-                                  column_config=cfg, num_rows="dynamic")
+                                  column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_hitos)
 
-        if st.button("💾 Guardar Hitos de Pago"):
+        if st.button("💾 Guardar Cambios en Hitos"):
             ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"
             df_final = pd.concat([ed_off, ed_on])
             df_final['PAGADO'] = df_final['PAGADO'].astype(str).upper()
             ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist())
-            st.success("Hitos guardados correctamente"); st.rerun()
+            st.success("Hitos actualizados correctamente"); st.rerun()
             
+        with st.expander("➕ Añadir Nuevo Hito de Pago"):
+            with st.form("f_add_hito"):
+                c_h1, c_h2, c_h3 = st.columns(3)
+                h_tipo = c_h1.selectbox("Tipo", ["Offshore", "Onshore"])
+                h_nombre = c_h2.text_input("Descripción Hito")
+                h_pct = c_h3.text_input("Porcentaje (ej: 10%)")
+                if st.form_submit_button("Añadir Hito"):
+                    ws_hitos.append_row([h_tipo, h_nombre, h_pct, "FALSE"])
+                    st.rerun()
+                    
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error en hitos: {e}")
