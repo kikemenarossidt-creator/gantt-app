@@ -5,17 +5,11 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(layout="wide", page_title="Gestión Planta Solar Pro")
 
-# Estilo CSS para mejorar la visibilidad de las tablas
-st.markdown("""
-    <style>
-    .stDataTable, .stDataEditor {
-        width: 100% !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# Estilo para asegurar que las tablas ocupen todo el ancho
+st.markdown("<style>.stDataEditor {width: 100% !important;}</style>", unsafe_allow_html=True)
 
 def obtener_cliente_gspread():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -110,7 +104,7 @@ if ws_tareas:
 
 st.divider()
 
-# --- 4. CONFIGURACIÓN DE RED ---
+# --- 4. RED E IPs ---
 st.header("🌐 Configuración de Red")
 ws_red = conectar_hoja(client, "Red")
 if ws_red:
@@ -141,7 +135,7 @@ if ws_creds:
 
 st.divider()
 
-# --- 6. PAYMENT MILESTONES ---
+# --- 6. PAYMENT MILESTONES (HITOS) ---
 st.header("💰 Payment Milestones")
 ws_hitos = conectar_hoja(client, "Hitos")
 if ws_hitos:
@@ -163,28 +157,40 @@ if ws_hitos:
         ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, num_rows="dynamic", key="ed_h_on", column_config=conf_h, column_order=("HITO", "PORCENTAJE", "PAGADO"))
     
     if st.button("💾 Guardar Hitos"):
-        ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"
         df_final = pd.concat([ed_off, ed_on])
         df_final['PAGADO'] = df_final['PAGADO'].astype(str).upper()
         ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist()); st.rerun()
 
 st.divider()
 
-# --- 7. SPARE PARTS INVENTORY ---
-st.header("📦 Spare Parts Inventory")
+# --- 7. SPARE PARTS INVENTORY (REPUESTOS) ---
+st.header("📦 Spare Parts Inventory (Repuestos)")
 ws_spare = conectar_hoja(client, "Repuestos")
 if ws_spare:
-    v_s = ws_spare.get_all_values()
-    df_s = pd.DataFrame(v_s[1:], columns=v_s[0]) if len(v_s) > 1 else pd.DataFrame(columns=["CATEGORIA", "DESCRIPCION", "UNIDADES", "RECIBIDO"])
-    df_s['RECIBIDO'] = df_s['RECIBIDO'].astype(str).str.upper() == 'TRUE'
-    
-    conf_s = {
-        "CATEGORIA": st.column_config.SelectboxColumn("Categoría", options=["PANELS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"], width="medium"),
-        "DESCRIPCION": st.column_config.TextColumn("Descripción Repuesto", width="large"),
-        "RECIBIDO": st.column_config.CheckboxColumn("OK")
-    }
-    df_s_ed = st.data_editor(df_s, hide_index=True, use_container_width=True, num_rows="dynamic", column_config=conf_s)
-    
-    if st.button("💾 Guardar Inventario"):
-        df_s_ed['RECIBIDO'] = df_s_ed['RECIBIDO'].astype(str).upper()
-        ws_spare.clear(); ws_spare.update([df_s_ed.columns.values.tolist()] + df_s_ed.values.tolist()); st.rerun()
+    try:
+        v_s = ws_spare.get_all_values()
+        if len(v_s) > 1:
+            df_s = pd.DataFrame(v_s[1:], columns=v_s[0])
+            if 'RECIBIDO' not in df_s.columns: df_s['RECIBIDO'] = "FALSE"
+            df_s['RECIBIDO'] = df_s['RECIBIDO'].astype(str).str.upper() == 'TRUE'
+        else:
+            df_s = pd.DataFrame(columns=["CATEGORIA", "DESCRIPCION", "UNIDADES", "RECIBIDO"])
+
+        st.info("💡 Usa el '+' al final de la tabla para añadir. Selecciona filas y pulsa 'Supr' para eliminar.")
+
+        config_spare = {
+            "CATEGORIA": st.column_config.SelectboxColumn("Categoría", options=["PANELS", "LV/MV COMPONENTS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"], width="medium"),
+            "DESCRIPCION": st.column_config.TextColumn("Descripción", width="large", required=True),
+            "UNIDADES": st.column_config.NumberColumn("Cant.", min_value=0, default=1),
+            "RECIBIDO": st.column_config.CheckboxColumn("OK")
+        }
+
+        df_s_ed = st.data_editor(df_s, hide_index=True, use_container_width=True, num_rows="dynamic", column_config=config_spare, key="ed_spare_final")
+
+        if st.button("💾 Guardar Inventario"):
+            df_final_s = df_s_ed.dropna(subset=["DESCRIPCION"]) # Evita guardar filas vacías
+            df_final_s['RECIBIDO'] = df_final_s['RECIBIDO'].astype(str).upper()
+            ws_spare.clear(); ws_spare.update([df_final_s.columns.values.tolist()] + df_final_s.values.tolist()); st.rerun()
+
+    except Exception as e:
+        st.error(f"Error en Spare Parts: {e}")
