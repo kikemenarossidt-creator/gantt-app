@@ -4,91 +4,105 @@ import plotly.express as px
 from datetime import datetime, timedelta
 
 st.set_page_config(layout="wide")
-
-st.title("📊 Gantt editable")
+st.title("📊 Gantt jerárquico PV - Plantilla completa")
 
 # ---------- DATOS INICIALES ----------
 if "df" not in st.session_state:
     base_date = datetime(2026, 4, 1)
-
-    st.session_state.df = pd.DataFrame([
-        {"Task": "Instalación eléctrica", "Start": base_date, "Finish": base_date + timedelta(days=5), "Level": 0},
-        {"Task": "Tendido eléctrico", "Start": base_date + timedelta(days=3), "Finish": base_date + timedelta(days=8), "Level": 1},
-        {"Task": "Cuadro protecciones SC", "Start": base_date + timedelta(days=6), "Finish": base_date + timedelta(days=11), "Level": 2},
-    ])
-
-df = st.session_state.df
-
-# ---------- GANTT ARRIBA ----------
-st.subheader("📈 Gantt")
-
-if not df.empty:
-    df_plot = df.copy()
-    df_plot["Task_display"] = df_plot.apply(
-        lambda row: "   " * int(row["Level"]) + row["Task"], axis=1
-    )
-
-    fig = px.timeline(
-        df_plot,
-        x_start="Start",
-        x_end="Finish",
-        y="Task_display",
-        color="Level"
-    )
-
-    fig.update_yaxes(autorange="reversed")
-
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("No hay tareas aún")
-
-# ---------- CONTROLES ----------
-st.subheader("➕ Añadir tarea")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    new_task = st.text_input("Nombre tarea")
-
-with col2:
-    new_level = st.number_input("Nivel", min_value=0, max_value=5, value=0)
-
-with col3:
-    new_start = st.date_input("Inicio", value=datetime(2026, 4, 1))
-
-with col4:
-    new_duration = st.number_input("Duración (días)", min_value=1, value=5)
-
-if st.button("Añadir"):
-    new_row = {
-        "Task": new_task,
-        "Start": pd.to_datetime(new_start),
-        "Finish": pd.to_datetime(new_start) + timedelta(days=int(new_duration)),
-        "Level": new_level
-    }
-
-    st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
-    st.rerun()
-
-# ---------- TABLA EDITABLE ----------
-st.subheader("📝 Editar tareas")
-
-edited_df = st.data_editor(
-    st.session_state.df,
-    num_rows="dynamic",
-    use_container_width=True
-)
-
-# Guardar cambios automáticamente
-st.session_state.df = edited_df
-
-# ---------- BORRAR ----------
-st.subheader("🗑️ Borrar tarea")
-
-task_to_delete = st.selectbox("Selecciona tarea", st.session_state.df["Task"])
-
-if st.button("Eliminar"):
-    st.session_state.df = st.session_state.df[
-        st.session_state.df["Task"] != task_to_delete
-    ]
-    st.rerun()
+    # Plantilla completa con niveles (0=padre, 1=subgrupo, 2=subtarea editable)
+    tasks = [
+        # 1: Instalación eléctrica
+        {"Task": "1: Instalación eléctrica", "Level": 0, "Parent": None, "Start": None, "Finish": None, "Status": None},
+        {"Task": "Tendido Eléctrico BT", "Level": 1, "Parent": "1: Instalación eléctrica", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Cuadro protecciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": base_date, "Finish": base_date + timedelta(days=5), "Status": "En curso"},
+        {"Task": "Cuadro Comunicaciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": base_date + timedelta(days=1), "Finish": base_date + timedelta(days=6), "Status": "Completado"},
+        {"Task": "Cuadro Sensores SC", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": base_date + timedelta(days=2), "Finish": base_date + timedelta(days=7), "Status": "Completado"},
+        {"Task": "Cuadro Comunicaciones CT2", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": base_date + timedelta(days=3), "Finish": base_date + timedelta(days=8), "Status": "Completado"},
+        {"Task": "Cuadro Sensores CT2", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": base_date + timedelta(days=4), "Finish": base_date + timedelta(days=9), "Status": "En curso"},
+        {"Task": "Alimentaciones CCTV", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": base_date + timedelta(days=5), "Finish": base_date + timedelta(days=10), "Status": "En curso"},
+        {"Task": "Alimentaciones TSM", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": base_date + timedelta(days=6), "Finish": base_date + timedelta(days=11), "Status": "En curso"},
+        {"Task": "Alimentaciones Cuadros Monitorización", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Alimentaciones Cuadros Seguridad", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Alimentación Rack", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Alimentación Alumbrado y Secundarios", "Level": 2, "Parent": "Tendido Eléctrico BT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Puestas a Tierra", "Level": 1, "Parent": "1: Instalación eléctrica", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Vallado", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "TSMs", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Box TSM", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "CCTV", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Vallado CT", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Bodega", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Trackers", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "String Box", "Level": 2, "Parent": "Puestas a Tierra", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Pruebas", "Level": 1, "Parent": "1: Instalación eléctrica", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Pruebas de aislamiento CT - Entronque", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Pruebas de aislamiento CTs", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Pruebas de aislamiento BT", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Polaridades CT", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Termografías", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Curvas IV", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Continuidad de Tierras", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Arc Flash", "Level": 2, "Parent": "Pruebas", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        # 2: Comunicaciones
+        {"Task": "2: Comunicaciones", "Level": 0, "Parent": None, "Start": None, "Finish": None, "Status": None},
+        {"Task": "Tendido Cableado", "Level": 1, "Parent": "2: Comunicaciones", "Start": None, "Finish": None, "Status": None},
+        {"Task": "CT1", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "CT2", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Piranómetros", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Sensores Temperatura", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Estación Meteorológica", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "TSMs", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Cuadro Monit CT2", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Cuadro Seguridad CT2", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Rack", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Cuadro Monit SC", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Cuadro Seguridad SC", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Cuadro Sensores SC", "Level": 2, "Parent": "Tendido Cableado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        # 3: Sensores
+        {"Task": "3: Sensores", "Level": 0, "Parent": None, "Start": None, "Finish": None, "Status": None},
+        {"Task": "Instalación Equipos", "Level": 1, "Parent": "3: Sensores", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Soportes Piranómetros", "Level": 2, "Parent": "Instalación Equipos", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Instalación Piranómetros", "Level": 2, "Parent": "Instalación Equipos", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Instalación Sensores Temperatura", "Level": 2, "Parent": "Instalación Equipos", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Instalación Celdas L/S", "Level": 2, "Parent": "Instalación Equipos", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Soportes Estación Meteo", "Level": 2, "Parent": "Instalación Equipos", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Instalación Estación Meteo", "Level": 2, "Parent": "Instalación Equipos", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Sensores Spare Bodega", "Level": 2, "Parent": "Instalación Equipos", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Comisionado", "Level": 1, "Parent": "3: Sensores", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Comisionado Contrata", "Level": 2, "Parent": "Comisionado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Credenciales Plataforma", "Level": 2, "Parent": "Comisionado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Documentación comisionado", "Level": 2, "Parent": "Comisionado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        # 5: Trackers y TSM
+        {"Task": "5: Trackers y TSM", "Level": 0, "Parent": None, "Start": None, "Finish": None, "Status": None},
+        {"Task": "TSM", "Level": 1, "Parent": "5: Trackers y TSM", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Sensores TSM", "Level": 2, "Parent": "TSM", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Cuadros TSM", "Level": 2, "Parent": "TSM", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Comisionado TSM Contrata", "Level": 2, "Parent": "TSM", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "TSC", "Level": 1, "Parent": "5: Trackers y TSM", "Start": None, "Finish": None, "Status": None},
+        {"Task": "TSC Completas", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Antenas TSC", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Comisionado Tracker", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Instalación WS", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Credenciales WS", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Trackers en Seguimiento", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "TSCs Operativas", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Documentación comisionado", "Level": 2, "Parent": "TSC", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        # 6: CTs
+        {"Task": "6: CTs", "Level": 0, "Parent": None, "Start": None, "Finish": None, "Status": None},
+        {"Task": "Preparación PEM CT", "Level": 1, "Parent": "6: CTs", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Botellas y Parayos (CKTSA)", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Fusibles Bodega", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Kits Aisladores", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Cuadro SSAA", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Trafo MT", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Trafo SA", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Configuración Inversores", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Pletinas Inversores", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Tierras", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Filtro", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Pruebas", "Level": 2, "Parent": "Preparación PEM CT", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Comisionado", "Level": 1, "Parent": "6: CTs", "Start": None, "Finish": None, "Status": None},
+        {"Task": "Monitorización Plataforma", "Level": 2, "Parent": "Comisionado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Banco Pértiga", "Level": 2, "Parent": "Comisionado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"Task": "Pegatinas 5RO", "Level": 2, "Parent": "Comisionado", "Start": None, "Finish": None, "Status": "Sin iniciar"},
+        {"
