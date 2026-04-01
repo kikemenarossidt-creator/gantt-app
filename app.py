@@ -3,13 +3,12 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Editor Total")
+st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Scroll")
 
-# ---------- 1. BASE DE DATOS INICIAL (42 TAREAS) ----------
+# ---------- 1. BASE DE DATOS INICIAL ----------
 if "df" not in st.session_state:
     base = datetime(2026, 4, 1)
     tasks_data = [
-        # 1. INSTALACIÓN ELÉCTRICA
         {"Task": "1: INSTALACIÓN ELÉCTRICA", "Level": 0, "Parent": None},
         {"Task": "Tendido Eléctrico BT", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
         {"Task": "Cuadro protecciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
@@ -20,25 +19,13 @@ if "df" not in st.session_state:
         {"Task": "Vallado Eléctrico", "Level": 2, "Parent": "Puestas a Tierra"},
         {"Task": "Pruebas Eléctricas", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
         {"Task": "Certificación de Aislamiento", "Level": 2, "Parent": "Pruebas Eléctricas"},
-        # 2. COMUNICACIONES
         {"Task": "2: COMUNICACIONES", "Level": 0, "Parent": None},
         {"Task": "Tendido Fibra Óptica", "Level": 1, "Parent": "2: COMUNICACIONES"},
         {"Task": "Fusión de fibras CT1", "Level": 2, "Parent": "Tendido Fibra Óptica"},
         {"Task": "Fusión de fibras CT2", "Level": 2, "Parent": "Tendido Fibra Óptica"},
         {"Task": "Equipos de Red", "Level": 1, "Parent": "2: COMUNICACIONES"},
-        {"Task": "Configuración Router/Switch", "Level": 2, "Parent": "Equipos de Red"},
-        # 3. SENSORES
         {"Task": "3: SENSORES", "Level": 0, "Parent": None},
-        {"Task": "Montaje de Estación Meteo", "Level": 1, "Parent": "3: SENSORES"},
-        {"Task": "Instalación Piranómetros", "Level": 2, "Parent": "Montaje de Estación Meteo"},
-        {"Task": "Sensores de Temperatura Módulo", "Level": 2, "Parent": "Montaje de Estación Meteo"},
-        {"Task": "Calibración de Señal", "Level": 2, "Parent": "Montaje de Estación Meteo"},
-        # 4. ESTRUCTURAS
         {"Task": "4: MONTAJE ESTRUCTURAS", "Level": 0, "Parent": None},
-        {"Task": "Hincado de Perfiles", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
-        {"Task": "Montaje de Vigas y Correas", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
-        {"Task": "Instalación de Módulos FV", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
-        # 5 a 12
         {"Task": "5: TRACKERS Y TSM", "Level": 0, "Parent": None},
         {"Task": "6: CTs", "Level": 0, "Parent": None},
         {"Task": "7: CCTV", "Level": 0, "Parent": None},
@@ -59,8 +46,8 @@ if "df" not in st.session_state:
 
 # ---------- 2. FUNCIONES DE CÁLCULO ----------
 def update_hierarchical_dates(df):
-    df = df.copy()
     if df.empty: return df
+    df = df.copy()
     df['Start'] = pd.to_datetime(df['Start'])
     df['End'] = pd.to_datetime(df['End'])
     calculated = {}
@@ -93,19 +80,22 @@ def update_hierarchical_dates(df):
             df.loc[df['Task'] == task, 'End'] = end
     return df
 
-# ---------- 3. PROCESAMIENTO PARA GRÁFICA ----------
+# ---------- 3. PROCESAMIENTO ----------
 st.session_state.df = st.session_state.df.sort_values('id').reset_index(drop=True)
 st.session_state.df = update_hierarchical_dates(st.session_state.df)
 
 st.sidebar.header("Vista")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
+alt_visor = st.sidebar.number_input("Altura del visor (px)", 300, 1000, 500)
+
 df_chart = st.session_state.df[st.session_state.df['Level'] <= profundidad].copy()
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 6 * int(x['Level']) + x['Task'], axis=1)
 
-# ---------- 4. GRÁFICO ALTAIR ----------
-h = max(len(df_chart) * 25, 100)
+# ---------- 4. GRÁFICO CON SCROLL ----------
+h_total = max(len(df_chart) * 30, 100) # Altura real de la gráfica
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
-base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=350, height=h)
+
+base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=350, height=h_total)
 text_layer = alt.layer(
     base_text.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold'),
     base_text.transform_filter(alt.datum.Level == 1).mark_text(align='left'),
@@ -116,26 +106,35 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
     x2='End:T',
     color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
     **col_config
-).properties(width=700, height=h)
-st.altair_chart(alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=None))
+).properties(width=700, height=h_total)
 
-# ---------- 5. EDITOR DE DATOS ----------
+# Unimos las capas
+full_chart = alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=None)
+
+# CREAMOS EL CONTENEDOR CON SCROLL USANDO HTML
+st.markdown(
+    f"""
+    <div style="height: {alt_visor}px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
+    """, 
+    unsafe_allow_html=True
+)
+st.altair_chart(full_chart)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------- 5. EDITOR Y ACCIONES ----------
 st.divider()
-st.subheader("📝 Tabla de Datos")
+st.subheader("📝 Gestión de Datos")
 edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True, key=f"ed_{len(st.session_state.df)}")
 if not edited_df.equals(st.session_state.df):
     st.session_state.df = update_hierarchical_dates(edited_df)
     st.rerun()
 
-# ---------- 6. ACCIONES: AÑADIR Y ELIMINAR (ABAJO) ----------
 col_add, col_del = st.columns(2)
-
 with col_add:
     with st.expander("➕ Añadir Tarea"):
-        n_name = st.text_input("Nombre de tarea")
+        n_name = st.text_input("Nombre")
         n_level = st.selectbox("Nivel", [0, 1, 2])
-        n_parents = [None] + st.session_state.df[st.session_state.df['Level'] < n_level]['Task'].tolist()
-        n_parent = st.selectbox("Asignar a Grupo", n_parents)
+        n_parent = st.selectbox("Grupo Padre", [None] + st.session_state.df[st.session_state.df['Level'] < n_level]['Task'].tolist())
         if st.button("Insertar"):
             df = st.session_state.df.copy()
             if n_parent:
@@ -154,8 +153,7 @@ with col_add:
 with col_del:
     with st.expander("🗑️ Eliminar Tarea"):
         t_to_del = st.selectbox("Tarea a eliminar", ["---"] + st.session_state.df['Task'].tolist())
-        st.warning("Se eliminarán también sus sub-tareas.")
-        if st.button("Borrar de la tabla"):
+        if st.button("Borrar"):
             if t_to_del != "---":
                 df = st.session_state.df.copy()
                 to_remove = [t_to_del]
