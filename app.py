@@ -36,16 +36,20 @@ if "df" not in st.session_state:
 # ---------- 2. FUNCIÓN PARA ACTUALIZAR FECHAS JERÁRQUICAS ----------
 def update_hierarchical_dates(df):
     df = df.copy()
+    if 'Parent' not in df.columns:
+        df['Parent'] = None
+
     # Iterar niveles de abajo hacia arriba (2 → 1 → 0)
     for level in sorted(df['Level'].unique(), reverse=True):
         for i, row in df[df['Level'] == level].iterrows():
-            # Para niveles >0, actualizar fechas del padre
-            if row['Parent']:
-                parent_idx = df[df['Task'] == row['Parent']].index[0]
-                parent_start = min(df.loc[parent_idx, 'Start'], row['Start'])
-                parent_end = max(df.loc[parent_idx, 'End'], row['End'])
-                df.at[parent_idx, 'Start'] = parent_start
-                df.at[parent_idx, 'End'] = parent_end
+            parent_name = row.get('Parent', None)
+            if parent_name and parent_name in df['Task'].values:
+                parent_idx = df[df['Task'] == parent_name].index[0]
+                # Considerar todos los hijos del padre
+                children = df[df['Parent'] == parent_name]
+                if not children.empty:
+                    df.at[parent_idx, 'Start'] = children['Start'].min()
+                    df.at[parent_idx, 'End'] = children['End'].max()
     return df
 
 # Ejecutar actualización de fechas
@@ -116,4 +120,7 @@ with st.expander("➕ Añadir Nueva Tarea"):
             "Start": pd.Timestamp(new_task_start),
             "End": pd.Timestamp(new_task_end)
         }
+        # Recalcular fechas jerárquicas automáticamente
+        st.session_state.df = update_hierarchical_dates(st.session_state.df)
         st.success(f"Tarea '{new_task_name}' añadida correctamente.")
+        st.experimental_rerun()  # Refresca para ver cambios
