@@ -23,8 +23,51 @@ def conectar_hoja(client, nombre_pestaña):
 
 client = obtener_cliente_gspread()
 
-# --- 1. FICHA TÉCNICA ---
+# --- LÓGICA DE CÁLCULO PARA EL VISOR ---
+def calcular_avances():
+    pct_hitos = 0
+    pct_tareas = 0
+    
+    # Cálculo de Hitos
+    ws_hitos = conectar_hoja(client, "Hitos")
+    if ws_hitos:
+        v_h = ws_hitos.get_all_values()
+        if len(v_h) > 1:
+            df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
+            # Limpiar porcentaje (quitar % y convertir a float)
+            df_h['val'] = df_h['PORCENTAJE'].str.replace('%', '').str.replace(',', '.').astype(float)
+            # Sumar solo los pagados
+            pagados = df_h[df_h['PAGADO'].str.upper() == 'TRUE']['val'].sum()
+            total = df_h['val'].sum()
+            if total > 0: pct_hitos = (pagados / total)
+            
+    # Cálculo de Tareas
+    ws_tareas = conectar_hoja(client, "Tareas")
+    if ws_tareas:
+        data_t = ws_tareas.get_all_records()
+        if data_t:
+            df_t = pd.DataFrame(data_t)
+            if 'Progress' in df_t.columns:
+                pct_tareas = df_t['Progress'].mean() / 100
+                
+    return pct_hitos, pct_tareas
+
+# --- 1. CABECERA Y VISOR DE AVANCE ---
 st.title("☀️ Control Integral de Proyecto")
+
+hitos_av, tareas_av = calcular_avances()
+
+col_v1, col_v2 = st.columns(2)
+with col_v1:
+    st.write(f"**Pagos Realizados: {hitos_av*100:.1f}%**")
+    st.progress(min(hitos_av, 1.0))
+with col_v2:
+    st.write(f"**Progreso Físico Obra: {tareas_av*100:.1f}%**")
+    st.progress(min(tareas_av, 1.0))
+
+st.divider()
+
+# --- 2. FICHA TÉCNICA ---
 with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -43,9 +86,7 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
         st.text_input("Nombre del alimentador", "DUAO 15 KV")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
-st.divider()
-
-# --- 2. SECCIÓN TAREAS ---
+# --- 3. SECCIÓN TAREAS (GANTT) ---
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
 if ws_tareas:
@@ -81,15 +122,15 @@ if ws_tareas:
             df_save['End'] = df_save['End'].dt.strftime('%d/%m/%Y')
             ws_tareas.clear(); ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist()); st.rerun()
 
-        col_add, col_del = st.columns(2)
-        with col_add:
+        c_add, c_del = st.columns(2)
+        with c_add:
             with st.expander("➕ Añadir Nueva Tarea"):
                 with st.form("f_add_task"):
                     nt = st.text_input("Nombre Tarea"); ne = st.text_input("Empresa"); nl = st.selectbox("Nivel", [0,1,2])
                     if st.form_submit_button("Añadir a la lista"):
-                        ws_tareas.append_row([len(df_t), nt, nl, "", ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(5)).strftime('%d/%m/%Y')])
+                        ws_tareas.append_row([len(df_t), nt, nl, 0, ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(5)).strftime('%d/%m/%Y')])
                         st.rerun()
-        with col_del:
+        with c_del:
             with st.expander("🗑️ Eliminar Tarea"):
                 t_b = st.selectbox("Tarea a eliminar", ["---"] + df_t['Task'].tolist())
                 if st.button("Eliminar Definitivamente"):
@@ -99,13 +140,9 @@ if ws_tareas:
 
 st.divider()
 
-# --- 3. SECCIÓN RED (IPs) ---
+# --- 4. SECCIÓN RED (IPs) ---
 st.header("🌐 Configuración de Red e IPs")
-c_net1, c_net2 = st.columns(2)
-with c_net1: st.text_input("Net mask:", value="255.255.255.0", key="nm_in")
-with c_net2: st.text_input("Gateway:", value="192.168.30.1", key="gw_in")
-
-ws_red = conectar_ho_red = conectar_hoja(client, "Red")
+ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
@@ -128,7 +165,7 @@ if ws_red:
 
 st.divider()
 
-# --- 4. SECCIÓN CREDENCIALES ---
+# --- 5. SECCIÓN CREDENCIALES ---
 st.header("🔑 Credenciales de Planta")
 ws_creds = conectar_hoja(client, "Credenciales")
 if ws_creds:
@@ -147,7 +184,7 @@ if ws_creds:
 
 st.divider()
 
-# --- 5. SECCIÓN HITOS DE PAGO (CORREGIDA) ---
+# --- 6. SECCIÓN HITOS DE PAGO ---
 st.header("💰 Hitos de Pago (Payment Milestones)")
 ws_hitos = conectar_hoja(client, "Hitos")
 if ws_hitos:
@@ -155,52 +192,36 @@ if ws_hitos:
         v_h = ws_hitos.get_all_values()
         if len(v_h) > 1:
             df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
-            if 'PAGADO' not in df_h.columns: 
-                df_h['PAGADO'] = "FALSE"
-            
-            # Convertir a booleano de forma segura para el editor
+            if 'PAGADO' not in df_h.columns: df_h['PAGADO'] = "FALSE"
             df_h['PAGADO'] = df_h['PAGADO'].astype(str).str.upper() == 'TRUE'
         else:
             df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
 
-        tab1, tab2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
-        cfg_hitos = {
-            "PAGADO": st.column_config.CheckboxColumn("Pagado"), 
-            "PORCENTAJE": st.column_config.TextColumn("Cuota %")
-        }
+        t1, t2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
+        cfg_h = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "PORCENTAJE": st.column_config.TextColumn("Cuota %")}
 
-        with tab1:
+        with t1:
             df_off = df_h[df_h["TIPO"] == "Offshore"].copy()
             ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", 
-                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_hitos)
-        with tab2:
+                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
+        with t2:
             df_on = df_h[df_h["TIPO"] == "Onshore"].copy()
             ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", 
-                                  column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_hitos)
+                                  column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
 
         if st.button("💾 Guardar Cambios en Hitos"):
-            # Asegurar que el TIPO se mantenga
-            ed_off["TIPO"] = "Offshore"
-            ed_on["TIPO"] = "Onshore"
+            ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"
             df_final = pd.concat([ed_off, ed_on])
-            
-            # CORRECCIÓN AQUÍ: Convertimos a string y luego a mayúsculas correctamente
             df_final['PAGADO'] = df_final['PAGADO'].astype(str).str.upper()
+            ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist()); st.rerun()
             
-            ws_hitos.clear()
-            ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist())
-            st.success("Hitos guardados correctamente")
-            st.rerun()
-            
-        with st.expander("➕ Añadir Nuevo Hito de Pago"):
+        with st.expander("➕ Añadir Nuevo Hito"):
             with st.form("f_add_hito"):
                 c_h1, c_h2, c_h3 = st.columns(3)
                 h_tipo = c_h1.selectbox("Tipo", ["Offshore", "Onshore"])
                 h_nombre = c_h2.text_input("Descripción Hito")
                 h_pct = c_h3.text_input("Porcentaje (ej: 10%)")
                 if st.form_submit_button("Añadir Hito"):
-                    ws_hitos.append_row([h_tipo, h_nombre, h_pct, "FALSE"])
-                    st.rerun()
-                    
+                    ws_hitos.append_row([h_tipo, h_nombre, h_pct, "FALSE"]); st.rerun()
     except Exception as e:
-        st.error(f"Error en hitos: {e}")
+        st.error(f"Error: {e}")
