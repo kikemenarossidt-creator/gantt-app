@@ -70,8 +70,9 @@ def update_hierarchical_dates(df):
     return df
 
 # ---------- 3. PROCESAMIENTO Y FILTRADO ----------
-st.session_state.df = update_hierarchical_dates(st.session_state.df)
+# Forzamos orden por ID siempre antes de mostrar
 st.session_state.df = st.session_state.df.sort_values('id').reset_index(drop=True)
+st.session_state.df = update_hierarchical_dates(st.session_state.df)
 
 st.sidebar.header("Vista")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
@@ -101,12 +102,13 @@ st.altair_chart(alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=N
 # ---------- 5. EDITOR ----------
 st.divider()
 st.subheader("📝 Editor de Datos")
-edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
+# Usamos un key dinámico basado en la longitud para forzar refresco al insertar
+edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True, key=f"editor_{len(st.session_state.df)}")
 if not edited_df.equals(st.session_state.df):
     st.session_state.df = update_hierarchical_dates(edited_df)
     st.rerun()
 
-# ---------- 6. LÓGICA DE INSERCIÓN INTELIGENTE ----------
+# ---------- 6. LÓGICA DE INSERCIÓN "CORTAR Y PEGAR" ----------
 with st.expander("➕ Añadir Nueva Tarea en su Posición Correcta"):
     c1, c2 = st.columns(2)
     new_name = c1.text_input("Nombre de la tarea")
@@ -118,11 +120,11 @@ with st.expander("➕ Añadir Nueva Tarea en su Posición Correcta"):
         df = st.session_state.df.copy()
         
         if new_parent:
-            # Lógica para encontrar el final de la rama (hijos, nietos, etc.)
+            # 1. Encontrar el índice del padre
             parent_idx = df[df['Task'] == new_parent].index[0]
             insert_pos = parent_idx + 1
             
-            # Buscamos hasta dónde llegan los descendientes de ese padre
+            # 2. Buscar hasta dónde llegan sus descendientes
             for i in range(parent_idx + 1, len(df)):
                 if df.iloc[i]['Level'] > df.loc[parent_idx, 'Level']:
                     insert_pos = i + 1
@@ -131,20 +133,25 @@ with st.expander("➕ Añadir Nueva Tarea en su Posición Correcta"):
         else:
             insert_pos = len(df)
 
-        # Desplazar IDs
-        df.loc[df['id'] >= insert_pos, 'id'] += 1
-        
-        # Nueva fila
+        # 3. Crear la nueva fila
         new_row = pd.DataFrame([{
-            "id": insert_pos,
+            "id": 999, # Temporal
             "Task": new_name,
             "Level": new_level,
             "Parent": new_parent,
             "Start": df['Start'].min(), 
-            "End": df['Start'].min() + timedelta(days=5)
+            "End": df['Start'].min() + timedelta(days=2)
         }])
+
+        # 4. RECONSTRUIR EL DATAFRAME POR PARTES
+        # Parte superior + Nueva fila + Parte inferior
+        df_top = df.iloc[:insert_pos]
+        df_bottom = df.iloc[insert_pos:]
         
-        st.session_state.df = pd.concat([df, new_row]).sort_values('id').reset_index(drop=True)
-        # Limpiar IDs para que sean 0, 1, 2...
-        st.session_state.df['id'] = range(len(st.session_state.df))
+        new_df = pd.concat([df_top, new_row, df_bottom]).reset_index(drop=True)
+        
+        # 5. REASIGNAR IDs DESDE CERO
+        new_df['id'] = range(len(new_df))
+        
+        st.session_state.df = new_df
         st.rerun()
