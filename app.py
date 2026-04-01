@@ -23,18 +23,25 @@ def conectar_hoja(client, nombre_pestaña):
 
 client = obtener_cliente_gspread()
 
-# 1. FICHA TÉCNICA
+# 1. FICHA TÉCNICA (ACTUALIZADA CON NUEVA INFO)
 st.title("☀️ Control Integral de Proyecto")
-with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
+with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=True):
     c1, c2, c3 = st.columns(3)
     with c1:
+        st.subheader("📍 Ubicación y Contacto")
         st.text_input("Nombre del Proyecto", "Planta Solar Atacama X")
         st.text_input("Dirección", "Km 45, Ruta 5 Norte")
+        st.text_area("Teléfonos de despacho", "+56 7 1263 5132\n+56 7 1263 5133", height=68)
     with c2:
+        st.subheader("⚡ Datos Técnicos")
         st.number_input("Potencia Pico (MWp)", value=10.5)
         st.text_input("Inversores", "SUNGROW SG250HX")
-    with c3:
         st.text_input("Paneles", "JINKO Solar 550W")
+        st.text_input("Trackers", "NextTracker 1P")
+    with c3:
+        st.subheader("🏢 Info CGE / Seguridad")
+        st.text_input("Nombre proyecto para CGE", "Maule X")
+        st.text_input("Nombre del alimentador", "DUAO 15 KV")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
 # 2. SECCIÓN TAREAS
@@ -97,24 +104,18 @@ if ws_tareas:
 
 st.divider()
 
-# 3. SECCIÓN RED (IPs) CON NETMASK Y GATEWAY
+# 3. SECCIÓN RED (IPs)
 st.header("🌐 Configuración de Red e IPs")
-
-# Reinsertamos los campos de configuración de red (Tabla superior)
 c_net1, c_net2 = st.columns(2)
-with c_net1:
-    st.text_input("Net mask:", value="255.255.255.0", key="net_mask_input")
-with c_net2:
-    st.text_input("Gateway:", value="192.168.30.1", key="gateway_input")
+with c_net1: st.text_input("Net mask:", value="255.255.255.0", key="net_mask_input")
+with c_net2: st.text_input("Gateway:", value="192.168.30.1", key="gateway_input")
 
 ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if v_r else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
     df_r['ESTADO'] = df_r['ESTADO'].apply(lambda x: str(x).upper() == 'TRUE')
-    
     df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
-    
     if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
         ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
@@ -122,12 +123,10 @@ if ws_red:
     with st.expander("➕ Añadir Equipo a la Red"):
         with st.form("form_add_ip"):
             f1, f2, f3, f4 = st.columns(4)
-            r_p = f1.text_input("Proveedor"); r_r = f2.text_input("Referencia"); r_m = f3.text_input("Marca"); r_u = f4.text_input("Uso/Equipo")
+            r_p, r_r, r_m, r_u = f1.text_input("Proveedor"), f2.text_input("Ref"), f3.text_input("Marca"), f4.text_input("Uso")
             r_ip = st.text_input("Dirección IP")
             if st.form_submit_button("Añadir Equipo"):
-                if r_ip:
-                    ws_red.append_row([r_p, r_r, r_m, r_u, r_ip, "FALSE"])
-                    st.rerun()
+                if r_ip: ws_red.append_row([r_p, r_r, r_m, r_u, r_ip, "FALSE"]); st.rerun()
 
 st.divider()
 
@@ -138,13 +137,11 @@ if ws_creds:
     v_c = ws_creds.get_all_values()
     df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if v_c else pd.DataFrame(columns=["EMPRESA","PLATAFORMA","USUARIO","CONTRASEÑA"])
     df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True)
-    
     if st.button("💾 Guardar Credenciales"):
         ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.values.tolist()); st.rerun()
-        
     with st.expander("➕ Añadir Credencial"):
         with st.form("f_creds"):
             c1, c2 = st.columns(2)
-            c_e = c1.text_input("Empresa"); c_p = c2.text_input("Plataforma"); c_u = c1.text_input("Usuario"); c_pw = c2.text_input("Contraseña")
+            c_e, c_p, c_u, c_pw = c1.text_input("Empresa"), c2.text_input("Plataforma"), c1.text_input("Usuario"), c2.text_input("Contraseña")
             if st.form_submit_button("Registrar Credencial"):
                 ws_creds.append_row([c_e, c_p, c_u, c_pw]); st.rerun()
