@@ -33,29 +33,33 @@ if "df" not in st.session_state:
         })
     st.session_state.df = pd.DataFrame(rows)
 
-# ---------- 2. FUNCIÓN PARA ACTUALIZAR FECHAS JERÁRQUICAS ----------
+# ---------- 2. FUNCIÓN RECURSIVA PARA ACTUALIZAR FECHAS ----------
 def update_hierarchical_dates(df):
     df = df.copy()
     if 'Parent' not in df.columns:
         df['Parent'] = None
 
-    # Iterar niveles de abajo hacia arriba (2 → 1 → 0)
-    for level in sorted(df['Level'].unique(), reverse=True):
-        for i, row in df[df['Level'] == level].iterrows():
-            parent_name = row.get('Parent', None)
-            if parent_name and parent_name in df['Task'].values:
-                parent_idx = df[df['Task'] == parent_name].index[0]
-                # Considerar todos los hijos del padre
-                children = df[df['Parent'] == parent_name]
-                if not children.empty:
-                    df.at[parent_idx, 'Start'] = children['Start'].min()
-                    df.at[parent_idx, 'End'] = children['End'].max()
+    # Función recursiva para calcular fechas de un nodo
+    def compute_dates(task_name):
+        children = df[df['Parent'] == task_name]
+        if not children.empty:
+            # Recurre a cada hijo
+            for child in children['Task']:
+                compute_dates(child)
+            # Actualiza la fecha del padre considerando todos los hijos recursivos
+            df.loc[df['Task'] == task_name, 'Start'] = children['Start'].min()
+            df.loc[df['Task'] == task_name, 'End'] = children['End'].max()
+
+    # Ejecutar para todas las tareas de nivel 0
+    for root in df[df['Level'] == 0]['Task']:
+        compute_dates(root)
+
     return df
 
 # Ejecutar actualización de fechas
 df_final = update_hierarchical_dates(st.session_state.df)
 
-# ---------- 3. FILTRADO POR NIVEL (Para efecto retráctil) ----------
+# ---------- 3. FILTRADO POR NIVEL ----------
 st.sidebar.header("Vista de Diagrama")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
 df_chart = df_final[df_final['Level'] <= profundidad].copy()
@@ -87,7 +91,7 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=2).encode(
 
 st.altair_chart(alt.hconcat(text_layer, bars, spacing=10).configure_view(stroke=None))
 
-# ---------- 5. EDITOR MAESTRO Y ADICIÓN DE NUEVAS TAREAS ----------
+# ---------- 5. EDITOR MAESTRO Y AÑADIR TAREAS ----------
 st.divider()
 st.subheader("📝 Editor y Añadir Tareas")
 
@@ -103,7 +107,6 @@ with st.expander("➕ Añadir Nueva Tarea"):
     new_task_name = st.text_input("Nombre de la Tarea")
     new_task_level = st.selectbox("Nivel", [0,1,2])
     
-    # Elegir padre según nivel
     possible_parents = [None] + st.session_state.df[st.session_state.df['Level'] < new_task_level]['Task'].tolist()
     new_task_parent = st.selectbox("Grupo Padre", possible_parents)
     
@@ -120,7 +123,6 @@ with st.expander("➕ Añadir Nueva Tarea"):
             "Start": pd.Timestamp(new_task_start),
             "End": pd.Timestamp(new_task_end)
         }
-        # Recalcular fechas jerárquicas automáticamente
         st.session_state.df = update_hierarchical_dates(st.session_state.df)
         st.success(f"Tarea '{new_task_name}' añadida correctamente.")
-        st.experimental_rerun()  # Refresca para ver cambios
+        st.experimental_rerun()
