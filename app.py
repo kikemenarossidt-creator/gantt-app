@@ -3,7 +3,7 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Gestión Completa")
+st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Editor Total")
 
 # ---------- 1. BASE DE DATOS INICIAL (42 TAREAS) ----------
 if "df" not in st.session_state:
@@ -18,7 +18,7 @@ if "df" not in st.session_state:
         {"Task": "Puestas a Tierra", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
         {"Task": "Hincado de picas", "Level": 2, "Parent": "Puestas a Tierra"},
         {"Task": "Vallado Eléctrico", "Level": 2, "Parent": "Puestas a Tierra"},
-        {"Task": "Pruebas Eléctricas", "Level": 1, "Parent": "1: INSTALACIÓN EL ELÉCTRICA"},
+        {"Task": "Pruebas Eléctricas", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
         {"Task": "Certificación de Aislamiento", "Level": 2, "Parent": "Pruebas Eléctricas"},
         # 2. COMUNICACIONES
         {"Task": "2: COMUNICACIONES", "Level": 0, "Parent": None},
@@ -38,20 +38,10 @@ if "df" not in st.session_state:
         {"Task": "Hincado de Perfiles", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
         {"Task": "Montaje de Vigas y Correas", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
         {"Task": "Instalación de Módulos FV", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
-        # 5. TRACKERS
+        # 5 a 12
         {"Task": "5: TRACKERS Y TSM", "Level": 0, "Parent": None},
-        {"Task": "Montaje Motores Tracker", "Level": 1, "Parent": "5: TRACKERS Y TSM"},
-        {"Task": "Instalación Controladores TSM", "Level": 1, "Parent": "5: TRACKERS Y TSM"},
-        {"Task": "Puesta en marcha Tracker", "Level": 1, "Parent": "5: TRACKERS Y TSM"},
-        # 6. CTs
         {"Task": "6: CTs", "Level": 0, "Parent": None},
-        {"Task": "Posicionamiento de Inversores", "Level": 1, "Parent": "6: CTs"},
-        {"Task": "Conexionado de Potencia BT/MT", "Level": 1, "Parent": "6: CTs"},
-        # 7. CCTV
         {"Task": "7: CCTV", "Level": 0, "Parent": None},
-        {"Task": "Instalación de Cámaras", "Level": 1, "Parent": "7: CCTV"},
-        {"Task": "Configuración de Grabado VMS", "Level": 1, "Parent": "7: CCTV"},
-        # 8 a 12 (Simplificados para brevedad de código, pero manteniendo estructura)
         {"Task": "8: SEGURIDAD", "Level": 0, "Parent": None},
         {"Task": "9: ENTRONQUE", "Level": 0, "Parent": None},
         {"Task": "10: PEM (CONEXIONADO)", "Level": 0, "Parent": None},
@@ -70,66 +60,50 @@ if "df" not in st.session_state:
 # ---------- 2. FUNCIONES DE CÁLCULO ----------
 def update_hierarchical_dates(df):
     df = df.copy()
+    if df.empty: return df
     df['Start'] = pd.to_datetime(df['Start'])
     df['End'] = pd.to_datetime(df['End'])
     calculated = {}
     def compute_dates(task_name):
         children = df[df['Parent'] == task_name]
         if children.empty:
-            row = df[df['Task'] == task_name].iloc[0]
+            match = df[df['Task'] == task_name]
+            if match.empty: return None, None
+            row = match.iloc[0]
             start, end = row['Start'], row['End']
         else:
             starts, ends = [], []
             for child in children['Task']:
                 s, e = compute_dates(child)
-                starts.append(s)
-                ends.append(e)
-            start, end = min(starts), max(ends)
+                if s and e:
+                    starts.append(s)
+                    ends.append(e)
+            if not starts:
+                row = df[df['Task'] == task_name].iloc[0]
+                start, end = row['Start'], row['End']
+            else:
+                start, end = min(starts), max(ends)
         calculated[task_name] = (start, end)
         return start, end
     for root in df[df['Level'] == 0]['Task']:
         compute_dates(root)
     for task, (start, end) in calculated.items():
-        df.loc[df['Task'] == task, 'Start'] = start
-        df.loc[df['Task'] == task, 'End'] = end
+        if start and end:
+            df.loc[df['Task'] == task, 'Start'] = start
+            df.loc[df['Task'] == task, 'End'] = end
     return df
 
-# ---------- 3. GESTIÓN DE BORRADO (SIDEBAR) ----------
-st.sidebar.header("🗑️ Eliminar Tareas")
-task_to_delete = st.sidebar.selectbox("Selecciona tarea para borrar", ["---"] + st.session_state.df['Task'].tolist())
-
-if st.sidebar.button("Eliminar definitivamente"):
-    if task_to_delete != "---":
-        df = st.session_state.df.copy()
-        # Encontrar la tarea y TODOS sus descendientes recursivamente
-        tasks_to_remove = [task_to_delete]
-        
-        def find_children(parent_name):
-            children = df[df['Parent'] == parent_name]['Task'].tolist()
-            for child in children:
-                tasks_to_remove.append(child)
-                find_children(child)
-        
-        find_children(task_to_delete)
-        # Filtrar el dataframe
-        new_df = df[~df['Task'].isin(tasks_to_remove)].copy()
-        # Resetear IDs
-        new_df = new_df.sort_values('id').reset_index(drop=True)
-        new_df['id'] = range(len(new_df))
-        st.session_state.df = new_df
-        st.sidebar.success(f"Eliminada '{task_to_delete}' y sus sub-tareas.")
-        st.rerun()
-
-# ---------- 4. PROCESAMIENTO Y FILTRADO ----------
+# ---------- 3. PROCESAMIENTO PARA GRÁFICA ----------
 st.session_state.df = st.session_state.df.sort_values('id').reset_index(drop=True)
 st.session_state.df = update_hierarchical_dates(st.session_state.df)
 
+st.sidebar.header("Vista")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
 df_chart = st.session_state.df[st.session_state.df['Level'] <= profundidad].copy()
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 6 * int(x['Level']) + x['Task'], axis=1)
 
-# ---------- 5. GRÁFICO ALTAIR ----------
-h = len(df_chart) * 25
+# ---------- 4. GRÁFICO ALTAIR ----------
+h = max(len(df_chart) * 25, 100)
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=350, height=h)
 text_layer = alt.layer(
@@ -145,30 +119,53 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
 ).properties(width=700, height=h)
 st.altair_chart(alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=None))
 
-# ---------- 6. EDITOR Y AÑADIR ----------
+# ---------- 5. EDITOR DE DATOS ----------
 st.divider()
+st.subheader("📝 Tabla de Datos")
 edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True, key=f"ed_{len(st.session_state.df)}")
 if not edited_df.equals(st.session_state.df):
     st.session_state.df = update_hierarchical_dates(edited_df)
     st.rerun()
 
-with st.expander("➕ Añadir Nueva Tarea"):
-    c1, c2 = st.columns(2)
-    new_name = c1.text_input("Nombre tarea")
-    new_level = c1.selectbox("Nivel", [0, 1, 2])
-    parents = [None] + st.session_state.df[st.session_state.df['Level'] < new_level]['Task'].tolist()
-    new_parent = c2.selectbox("Padre", parents)
-    if st.button("Insertar"):
-        df = st.session_state.df.copy()
-        if new_parent:
-            parent_idx = df[df['Task'] == new_parent].index[0]
-            ins_pos = parent_idx + 1
-            for i in range(parent_idx + 1, len(df)):
-                if df.iloc[i]['Level'] > df.loc[parent_idx, 'Level']: ins_pos = i + 1
-                else: break
-        else: ins_pos = len(df)
-        new_row = pd.DataFrame([{"id": 0, "Task": new_name, "Level": new_level, "Parent": new_parent, "Start": df['Start'].min(), "End": df['Start'].min() + timedelta(days=3)}])
-        new_df = pd.concat([df.iloc[:ins_pos], new_row, df.iloc[ins_pos:]]).reset_index(drop=True)
-        new_df['id'] = range(len(new_df))
-        st.session_state.df = new_df
-        st.rerun()
+# ---------- 6. ACCIONES: AÑADIR Y ELIMINAR (ABAJO) ----------
+col_add, col_del = st.columns(2)
+
+with col_add:
+    with st.expander("➕ Añadir Tarea"):
+        n_name = st.text_input("Nombre de tarea")
+        n_level = st.selectbox("Nivel", [0, 1, 2])
+        n_parents = [None] + st.session_state.df[st.session_state.df['Level'] < n_level]['Task'].tolist()
+        n_parent = st.selectbox("Asignar a Grupo", n_parents)
+        if st.button("Insertar"):
+            df = st.session_state.df.copy()
+            if n_parent:
+                p_idx = df[df['Task'] == n_parent].index[0]
+                ins_pos = p_idx + 1
+                for i in range(p_idx + 1, len(df)):
+                    if df.iloc[i]['Level'] > df.loc[p_idx, 'Level']: ins_pos = i + 1
+                    else: break
+            else: ins_pos = len(df)
+            new_r = pd.DataFrame([{"id": 0, "Task": n_name, "Level": n_level, "Parent": n_parent, "Start": df['Start'].min(), "End": df['Start'].min() + timedelta(days=2)}])
+            df = pd.concat([df.iloc[:ins_pos], new_r, df.iloc[ins_pos:]]).reset_index(drop=True)
+            df['id'] = range(len(df))
+            st.session_state.df = df
+            st.rerun()
+
+with col_del:
+    with st.expander("🗑️ Eliminar Tarea"):
+        t_to_del = st.selectbox("Tarea a eliminar", ["---"] + st.session_state.df['Task'].tolist())
+        st.warning("Se eliminarán también sus sub-tareas.")
+        if st.button("Borrar de la tabla"):
+            if t_to_del != "---":
+                df = st.session_state.df.copy()
+                to_remove = [t_to_del]
+                def find_ch(p_name):
+                    chs = df[df['Parent'] == p_name]['Task'].tolist()
+                    for c in chs:
+                        to_remove.append(c)
+                        find_ch(c)
+                find_ch(t_to_del)
+                df = df[~df['Task'].isin(to_remove)].copy()
+                df['id'] = range(len(df))
+                st.session_state.df = df
+                st.rerun()
