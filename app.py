@@ -65,7 +65,7 @@ if ws_tareas:
             x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')),
             x2='End:T',
             color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
-            tooltip=['Task', 'Empresa a Cargo', 'Start', 'End']
+            tooltip=['Task', 'Empresa a Cargo']
         ).properties(width=750, height=h)
         st.altair_chart(alt.hconcat(text_layer, bars))
         
@@ -82,8 +82,7 @@ if ws_tareas:
             with st.expander("➕ Añadir Nueva Tarea"):
                 with st.form("form_add_task"):
                     nt = st.text_input("Nombre de la Tarea")
-                    ne = st.text_input("Empresa a Cargo")
-                    nl = st.selectbox("Nivel", [0, 1, 2])
+                    ne = st.text_input("Empresa a Cargo"); nl = st.selectbox("Nivel", [0, 1, 2])
                     if st.form_submit_button("Añadir a la lista"):
                         ws_tareas.append_row([len(df_t), nt, nl, "", ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now() + timedelta(days=5)).strftime('%d/%m/%Y')])
                         st.rerun()
@@ -98,8 +97,16 @@ if ws_tareas:
 
 st.divider()
 
-# 3. SECCIÓN RED (IPs)
+# 3. SECCIÓN RED (IPs) CON NETMASK Y GATEWAY
 st.header("🌐 Configuración de Red e IPs")
+
+# Reinsertamos los campos de configuración de red (Tabla superior)
+c_net1, c_net2 = st.columns(2)
+with c_net1:
+    st.text_input("Net mask:", value="255.255.255.0", key="net_mask_input")
+with c_net2:
+    st.text_input("Gateway:", value="192.168.30.1", key="gateway_input")
+
 ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
@@ -112,7 +119,6 @@ if ws_red:
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
         ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
 
-    # FORMULARIO DE RED RESTAURADO
     with st.expander("➕ Añadir Equipo a la Red"):
         with st.form("form_add_ip"):
             f1, f2, f3, f4 = st.columns(4)
