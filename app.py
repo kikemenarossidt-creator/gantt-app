@@ -3,7 +3,7 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Estilo Excel")
+st.set_page_config(layout="wide", page_title="Gantt Obra")
 
 # 1. BASE DE DATOS COMPLETA
 if "df" not in st.session_state:
@@ -34,29 +34,26 @@ if "df" not in st.session_state:
 
 df = st.session_state.df.copy()
 
-# --- SOLUCIÓN DEFINITIVA PARA EL ESCALONADO ---
-# Usamos un espacio especial (Unicode \u00A0) para crear la sangría física real
-def create_indent(row):
-    # 3 espacios por cada nivel de jerarquía
-    indent = "\u00A0" * (row['Level'] * 6)
+# --- PRE-PROCESAMIENTO EN PANDAS (Para evitar errores en Altair) ---
+def format_task(row):
+    # Sangría compacta: 4 espacios por nivel
+    indent = "\u00A0" * (row['Level'] * 4)
     return f"{indent}{row['Task']}"
 
-df['Task_Indent'] = df.apply(create_indent, axis=1)
+df['Task_Display'] = df.apply(format_task, axis=1)
 
-# 2. GRÁFICO
+# 2. GRÁFICA
 h = len(df) * 22
 
-# Columna de nombres (Ahora es una sola columna con el espacio ya incluido)
+# Columna de nombres simplificada (sin condiciones datum que causen error)
 task_labels = alt.Chart(df).mark_text(
     align='left', 
     size=11,
     baseline='middle'
 ).encode(
     y=alt.Y('id:O', axis=None, sort='ascending'),
-    text='Task_Indent:N',
-    fontWeight=alt.condition('datum.Level == 0', alt.value('bold'), alt.value('normal')),
-    color=alt.condition('datum.Level == 2', alt.value('#666'), alt.value('black'))
-).properties(width=400, height=h) # Ajusta este width si los nombres son muy largos
+    text=alt.Text('Task_Display:N')
+).properties(width=300, height=h)
 
 # Barras del cronograma
 bars = alt.Chart(df).mark_bar(cornerRadius=2, size=16).encode(
@@ -64,12 +61,13 @@ bars = alt.Chart(df).mark_bar(cornerRadius=2, size=16).encode(
     x2='End:T',
     y=alt.Y('id:O', axis=None, sort='ascending'),
     color=alt.Color('Level:N', scale=alt.Scale(range=['#004e92', '#00a1ff', '#b3e0ff']), legend=None)
-).properties(width=600, height=h)
+).properties(width=700, height=h)
 
-# Unimos con spacing=0 para que el texto y la barra parezcan la misma fila de Excel
-layout = alt.hconcat(task_labels, bars, spacing=10).configure_view(stroke=None)
+# Unión final con espacio mínimo para que parezca una tabla de Excel
+layout = alt.hconcat(task_labels, bars, spacing=5).configure_view(stroke=None)
 
 st.altair_chart(layout, use_container_width=False)
 
 # 3. EDITOR
-st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
+st.subheader("📝 Editor de Tareas")
+st.session_state.df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
