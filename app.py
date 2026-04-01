@@ -5,125 +5,156 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Gantt & Red Solar Pro")
+# --- CONFIGURACIÓN ---
+st.set_page_config(layout="wide", page_title="Gestión Planta Solar")
 
-# --- CONEXIÓN A GOOGLE SHEETS ---
-def conectar_ws(nombre_pestaña):
+def obtener_cliente_gspread():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    return gspread.authorize(creds)
+
+def conectar_hoja(client, nombre_pestaña):
+    ID_HOJA = "1n63OLrzPg27ekpipyW_XF-kXfpg4F-yEkRc0gKynrys"
     try:
-        creds_dict = st.secrets["gcp_service_account"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        ID_HOJA = "1n63OLrzPg27ekpipyW_XF-kXfpg4F-yEkRc0gKynrys"
-        sheet_file = client.open_by_key(ID_HOJA)
-        return sheet_file.worksheet(nombre_pestaña)
-    except Exception as e:
-        st.error(f"Error conectando a {nombre_pestaña}: {e}")
+        return client.open_by_key(ID_HOJA).worksheet(nombre_pestaña)
+    except:
         return None
 
-# --- 1. FICHA TÉCNICA DEL PROYECTO ---
-st.title("☀️ Gestión Integral Planta Solar")
+# --- INICIALIZACIÓN ---
+client = obtener_cliente_gspread()
 
+# 1. FICHA TÉCNICA (CABECERA)
+st.title("☀️ Control Integral de Proyecto")
 with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
     c1, c2, c3 = st.columns(3)
     with c1:
         st.text_input("Nombre del Proyecto", "Planta Solar Atacama X")
-        st.text_input("Dirección", "Km 45, Ruta 5 Norte, Chile")
+        st.text_input("Dirección", "Km 45, Ruta 5 Norte")
+        st.text_input("URL Maps", "http://google.com/...")
     with c2:
         st.number_input("Potencia Pico (MWp)", value=10.5)
+        st.number_input("Potencia Nominal (MWn)", value=9.0)
         st.text_input("Inversores", "SUNGROW SG250HX")
     with c3:
         st.text_input("Paneles", "JINKO Solar 550W")
         st.text_input("Trackers", "NextTracker 1P")
+        st.text_input("Proveedor Seguridad", "Prosegur")
 
-# --- 2. SECCIÓN CRONOGRAMA (Pestaña Tareas) ---
+# 2. SECCIÓN TAREAS (CRONOGRAMA)
 st.header("📅 Cronograma de Obra")
-ws_tareas = conectar_ws("Tareas")
+ws_tareas = conectar_hoja(client, "Tareas")
 
 if ws_tareas:
-    df_tareas = pd.DataFrame(ws_tareas.get_all_records())
-    df_tareas['Start'] = pd.to_datetime(df_tareas['Start'], dayfirst=True, errors='coerce')
-    df_tareas['End'] = pd.to_datetime(df_tareas['End'], dayfirst=True, errors='coerce')
-    
-    # Gráfica Gantt
-    profundidad = st.sidebar.slider("Nivel Detalle Gantt", 0, 2, 2)
-    df_plot = df_tareas[df_tareas['Level'] <= profundidad].copy()
-    df_plot['Display'] = df_plot.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
-    
-    chart_h = max(len(df_plot) * 25, 150)
-    base = alt.Chart(df_plot).encode(y=alt.Y('id:O', axis=None, sort='ascending'))
-    text = base.mark_text(align='left').encode(text='Display:N').properties(width=300, height=chart_h)
-    bars = base.mark_bar().encode(
-        x='Start:T', x2='End:T',
-        color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
-        tooltip=['Task', 'Empresa a Cargo']
-    ).properties(width=800, height=chart_h)
-    st.altair_chart(alt.hconcat(text, bars))
-
-    if st.checkbox("Editar Tareas"):
-        df_t_edit = st.data_editor(df_tareas, hide_index=True, use_container_width=True)
-        if st.button("💾 Guardar Tareas"):
-            df_t_edit['Start'] = df_t_edit['Start'].dt.strftime('%d/%m/%Y')
-            df_t_edit['End'] = df_t_edit['End'].dt.strftime('%d/%m/%Y')
+    data_t = ws_tareas.get_all_records()
+    if data_t:
+        df_t = pd.DataFrame(data_t)
+        df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
+        df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
+        
+        # --- GRÁFICA GANTT ---
+        prof = st.sidebar.slider("Detalle Gantt", 0, 2, 2)
+        df_p = df_t[df_t['Level'] <= prof].copy()
+        df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
+        
+        h = max(len(df_p) * 25, 200)
+        base = alt.Chart(df_p).encode(y=alt.Y('id:O', axis=None, sort='ascending'))
+        
+        text_layer = alt.layer(
+            base.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold', fontSize=13),
+            base.transform_filter(alt.datum.Level == 1).mark_text(align='left', fontSize=12),
+            base.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray')
+        ).encode(text='Display:N').properties(width=350, height=h)
+        
+        bars = base.mark_bar(cornerRadius=3).encode(
+            x='Start:T', x2='End:T',
+            color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
+            tooltip=['Task', 'Empresa a Cargo']
+        ).properties(width=750, height=h)
+        
+        st.altair_chart(alt.hconcat(text_layer, bars))
+        
+        # --- TABLA EDITOR ---
+        st.subheader("📝 Gestión de Tareas")
+        df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True)
+        
+        if st.button("💾 Sincronizar Cambios de Tabla"):
+            df_save = df_t_edit.copy()
+            df_save['Start'] = df_save['Start'].dt.strftime('%d/%m/%Y')
+            df_save['End'] = df_save['End'].dt.strftime('%d/%m/%Y')
             ws_tareas.clear()
-            ws_tareas.update([df_t_edit.columns.values.tolist()] + df_t_edit.values.tolist())
+            ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist())
+            st.success("¡Tareas actualizadas!")
             st.rerun()
+
+        # --- AÑADIR Y ELIMINAR (COMO ESTABA ANTES) ---
+        col_add, col_del = st.columns(2)
+        
+        with col_add:
+            with st.expander("➕ Añadir Nueva Tarea"):
+                with st.form("form_add_task"):
+                    nt = st.text_input("Nombre de la Tarea")
+                    ne = st.text_input("Empresa a Cargo")
+                    nl = st.selectbox("Nivel", [0, 1, 2])
+                    np = st.selectbox("Padre", [None] + df_t[df_t['Level'] < nl]['Task'].tolist())
+                    if st.form_submit_button("Añadir a la lista"):
+                        nueva_fila = [len(df_t), nt, nl, np if np else "", ne, 
+                                     datetime.now().strftime('%d/%m/%Y'), 
+                                     (datetime.now() + timedelta(days=5)).strftime('%d/%m/%Y')]
+                        ws_tareas.append_row(nueva_fila)
+                        st.rerun()
+
+        with col_del:
+            with st.expander("🗑️ Eliminar Tarea"):
+                t_borrar = st.selectbox("Selecciona tarea para eliminar", ["---"] + df_t['Task'].tolist())
+                if st.button("Eliminar Definitivamente"):
+                    if t_borrar != "---":
+                        df_final = df_t[df_t['Task'] != t_borrar].copy()
+                        df_final['id'] = range(len(df_final))
+                        ws_tareas.clear()
+                        df_final['Start'] = df_final['Start'].dt.strftime('%d/%m/%Y')
+                        df_final['End'] = df_final['End'].dt.strftime('%d/%m/%Y')
+                        ws_tareas.update([df_final.columns.values.tolist()] + df_final.values.tolist())
+                        st.rerun()
 
 st.divider()
 
-# --- 3. SECCIÓN RED Y COMUNICACIONES (Pestaña Red) ---
+# 3. SECCIÓN RED (IPs)
 st.header("🌐 Configuración de Red e IPs")
 
-# Inputs de red general (Segunda imagen)
 c_net1, c_net2 = st.columns(2)
-with c_net1:
-    st.text_input("Net mask:", "255.255.255.0")
-with c_net2:
-    st.text_input("Gateway:", "192.168.30.1")
+with c_net1: st.text_input("Net mask:", value="255.255.255.0")
+with c_net2: st.text_input("Gateway:", value="192.168.30.1")
 
-ws_red = conectar_ws("Red")
+ws_red = conectar_hoja(client, "Red")
 
 if ws_red:
-    df_red = pd.DataFrame(ws_red.get_all_records())
-    
-    if df_red.empty:
-        st.info("La pestaña 'Red' está vacía. Por favor, añade las columnas: PROVEEDOR, REFERENCIA, MARCA, USO, DIRECCION IP, ESTADO")
-    else:
-        # Editor de la tabla de IPs
-        # El checkbox se mapea automáticamente a la columna ESTADO si es booleana
-        df_red_edit = st.data_editor(
-            df_red, 
-            hide_index=True, 
+    data_r = ws_red.get_all_records()
+    if data_r:
+        df_r = pd.DataFrame(data_r)
+        df_r_edit = st.data_editor(
+            df_r,
+            hide_index=True,
             use_container_width=True,
             column_config={
-                "ESTADO": st.column_config.CheckboxColumn(
-                    "Comunicando",
-                    help="Marcar si el equipo responde a PING",
-                    default=False,
-                ),
-                "DIRECCION IP": st.column_config.TextColumn(
-                    "Dirección IP",
-                    validate=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
-                )
+                "ESTADO": st.column_config.CheckboxColumn("Comunicando", default=False),
+                "DIRECCION IP": st.column_config.TextColumn("Dirección IP", validate=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
             }
         )
-
-        if st.button("💾 Sincronizar Estado de Red"):
+        if st.button("💾 Guardar Estado de Red"):
             ws_red.clear()
-            ws_red.update([df_red_edit.columns.values.tolist()] + df_red_edit.values.tolist())
-            st.success("Configuración de red actualizada en Google Sheets")
+            ws_red.update([df_r_edit.columns.values.tolist()] + df_r_edit.values.tolist())
+            st.success("Red actualizada")
             st.rerun()
 
-# --- 4. AÑADIR ELEMENTO DE RED ---
-with st.expander("➕ Añadir Nuevo Equipo a la Red"):
-    f1, f2, f3, f4 = st.columns(4)
-    with f1: n_prov = st.text_input("Proveedor")
-    with f2: n_marca = st.text_input("Marca")
-    with f3: n_uso = st.text_input("Uso/Equipo")
-    with f4: n_ip = st.text_input("IP")
-    
-    if st.button("Insertar en Red"):
-        nueva_ip = [[n_prov, "", n_marca, n_uso, n_ip, False]]
-        ws_red.append_row(nueva_ip[0])
-        st.rerun()
+    with st.expander("➕ Añadir Equipo a la Red"):
+        with st.form("form_add_ip"):
+            f1, f2, f3, f4 = st.columns(4)
+            r_prov = f1.text_input("Proveedor")
+            r_ref = f2.text_input("Referencia")
+            r_marca = f3.text_input("Marca")
+            r_uso = f4.text_input("Uso/Equipo")
+            r_ip = st.text_input("IP")
+            if st.form_submit_button("Añadir a Red"):
+                ws_red.append_row([r_prov, r_ref, r_marca, r_uso, r_ip, False])
+                st.rerun()
