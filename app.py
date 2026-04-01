@@ -175,4 +175,4 @@ st.plotly_chart(fig, use_container_width=True)
 
 # 5. EDITOR
 st.subheader("📝 Tabla de Datos Completa")
-st.session_state.df = st.data_editor(st.session_state.df, num_rows="dynamic", use_container_width
+st.session_state.df = st.data_editor(st.session_state.df, num_rows="dynamic", use_container_width=True)
