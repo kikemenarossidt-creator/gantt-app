@@ -8,6 +8,15 @@ from datetime import datetime, timedelta
 # --- CONFIGURACIÓN ---
 st.set_page_config(layout="wide", page_title="Gestión Planta Solar Pro")
 
+# Estilo CSS para mejorar la visibilidad de las tablas
+st.markdown("""
+    <style>
+    .stDataTable, .stDataEditor {
+        width: 100% !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 def obtener_cliente_gspread():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
@@ -79,21 +88,21 @@ if ws_tareas:
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
         
-        # Filtro para el gráfico (evita el ValueError de Altair)
         df_chart = df_t.dropna(subset=['Start', 'End']).copy()
-        
         if not df_chart.empty:
-            prof = st.sidebar.slider("Nivel Gantt", 0, 2, 2)
-            df_p = df_chart[df_chart['Level'] <= prof].copy()
-            chart = alt.Chart(df_p).mark_bar(cornerRadius=3).encode(
-                x=alt.X('Start:T'), x2='End:T', y=alt.Y('Task:N', sort=None),
+            chart = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
+                x=alt.X('Start:T', title="Fecha Inicio"), x2='End:T', y=alt.Y('Task:N', sort=None, title="Tarea"),
                 color=alt.Color('Level:N', legend=None), tooltip=['Task', 'Progress']
-            ).properties(width=800, height=350).interactive()
+            ).properties(height=350).interactive()
             st.altair_chart(chart, use_container_width=True)
         
         st.subheader("📝 Gestión de Tareas")
-        df_t_ed = st.data_editor(df_t, hide_index=True, use_container_width=True, num_rows="dynamic")
-        if st.button("💾 Guardar Cambios en Tareas"):
+        df_t_ed = st.data_editor(df_t, hide_index=True, use_container_width=True, num_rows="dynamic",
+                                 column_config={
+                                     "Task": st.column_config.TextColumn("Tarea", width="large", required=True),
+                                     "Progress": st.column_config.NumberColumn("%", min_value=0, max_value=100)
+                                 })
+        if st.button("💾 Guardar Tareas"):
             df_save = df_t_ed.copy()
             df_save['Start'] = df_save['Start'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notnull(x) else "")
             df_save['End'] = df_save['End'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notnull(x) else "")
@@ -101,15 +110,19 @@ if ws_tareas:
 
 st.divider()
 
-# --- 4. RED E IPs ---
+# --- 4. CONFIGURACIÓN DE RED ---
 st.header("🌐 Configuración de Red")
 ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","MARCA","USO","IP","ESTADO"])
     df_r['ESTADO'] = df_r['ESTADO'].astype(str).str.upper() == 'TRUE'
-    df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, num_rows="dynamic", column_config={"ESTADO": st.column_config.CheckboxColumn("OK")})
-    if st.button("💾 Guardar Cambios en Red"):
+    df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, num_rows="dynamic", 
+                             column_config={
+                                 "USO": st.column_config.TextColumn("Uso/Destino", width="large"),
+                                 "ESTADO": st.column_config.CheckboxColumn("OK")
+                             })
+    if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
         ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
 
@@ -121,13 +134,14 @@ ws_creds = conectar_hoja(client, "Credenciales")
 if ws_creds:
     v_c = ws_creds.get_all_values()
     df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if len(v_c) > 1 else pd.DataFrame(columns=["EMPRESA","PLATAFORMA","USUARIO","CONTRASEÑA"])
-    df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True, num_rows="dynamic")
-    if st.button("💾 Guardar Cambios en Credenciales"):
+    df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True, num_rows="dynamic",
+                             column_config={"PLATAFORMA": st.column_config.TextColumn("Plataforma", width="medium")})
+    if st.button("💾 Guardar Credenciales"):
         ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.values.tolist()); st.rerun()
 
 st.divider()
 
-# --- 6. HITOS DE PAGO ---
+# --- 6. PAYMENT MILESTONES ---
 st.header("💰 Payment Milestones")
 ws_hitos = conectar_hoja(client, "Hitos")
 if ws_hitos:
@@ -136,22 +150,27 @@ if ws_hitos:
     df_h['PAGADO'] = df_h['PAGADO'].astype(str).str.upper() == 'TRUE'
     
     t1, t2 = st.tabs(["🚢 Offshore", "🏗️ Onshore"])
-    conf_h = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "TIPO": st.column_config.SelectboxColumn("Tipo", options=["Offshore", "Onshore"])}
+    conf_h = {
+        "PAGADO": st.column_config.CheckboxColumn("Pagado"),
+        "HITO": st.column_config.TextColumn("Hito de Pago", width="large"),
+        "PORCENTAJE": st.column_config.TextColumn("Cuota %", width="small")
+    }
     with t1:
         df_off = df_h[df_h["TIPO"] == "Offshore"].copy()
-        ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, num_rows="dynamic", key="ed_h_off", column_config=conf_h)
+        ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, num_rows="dynamic", key="ed_h_off", column_config=conf_h, column_order=("HITO", "PORCENTAJE", "PAGADO"))
     with t2:
         df_on = df_h[df_h["TIPO"] == "Onshore"].copy()
-        ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, num_rows="dynamic", key="ed_h_on", column_config=conf_h)
+        ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, num_rows="dynamic", key="ed_h_on", column_config=conf_h, column_order=("HITO", "PORCENTAJE", "PAGADO"))
     
-    if st.button("💾 Guardar Cambios en Hitos"):
+    if st.button("💾 Guardar Hitos"):
+        ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"
         df_final = pd.concat([ed_off, ed_on])
         df_final['PAGADO'] = df_final['PAGADO'].astype(str).upper()
         ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist()); st.rerun()
 
 st.divider()
 
-# --- 7. SPARE PARTS (REPUESTOS) ---
+# --- 7. SPARE PARTS INVENTORY ---
 st.header("📦 Spare Parts Inventory")
 ws_spare = conectar_hoja(client, "Repuestos")
 if ws_spare:
@@ -160,11 +179,12 @@ if ws_spare:
     df_s['RECIBIDO'] = df_s['RECIBIDO'].astype(str).str.upper() == 'TRUE'
     
     conf_s = {
-        "CATEGORIA": st.column_config.SelectboxColumn("Categoría", options=["PANELS", "LV/MV COMPONENTS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"]),
+        "CATEGORIA": st.column_config.SelectboxColumn("Categoría", options=["PANELS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"], width="medium"),
+        "DESCRIPCION": st.column_config.TextColumn("Descripción Repuesto", width="large"),
         "RECIBIDO": st.column_config.CheckboxColumn("OK")
     }
     df_s_ed = st.data_editor(df_s, hide_index=True, use_container_width=True, num_rows="dynamic", column_config=conf_s)
     
-    if st.button("💾 Guardar Cambios en Inventario"):
+    if st.button("💾 Guardar Inventario"):
         df_s_ed['RECIBIDO'] = df_s_ed['RECIBIDO'].astype(str).upper()
         ws_spare.clear(); ws_spare.update([df_s_ed.columns.values.tolist()] + df_s_ed.values.tolist()); st.rerun()
