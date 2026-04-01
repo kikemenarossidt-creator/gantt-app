@@ -3,30 +3,94 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Jerárquico Profesional")
+st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Completo")
 
-# ---------- 1. BASE DE DATOS INICIAL ----------
+# ---------- 1. BASE DE DATOS INICIAL COMPLETA ----------
 if "df" not in st.session_state:
     base = datetime(2026, 4, 1)
+    # Estructura completa de las 12 categorías y sus sub-tareas
     tasks_data = [
+        # 1. ELÉCTRICA
         {"Task": "1: INSTALACIÓN ELÉCTRICA", "Level": 0, "Parent": None},
         {"Task": "Tendido Eléctrico BT", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
         {"Task": "Cuadro protecciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
         {"Task": "Cuadro Comunicaciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
+        {"Task": "Cuadro Sensores SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
         {"Task": "Puestas a Tierra", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
+        {"Task": "Vallado Eléctrico", "Level": 2, "Parent": "Puestas a Tierra"},
+        {"Task": "Pruebas", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
+        {"Task": "Pruebas Aislamiento BT", "Level": 2, "Parent": "Pruebas"},
+        {"Task": "Curvas IV", "Level": 2, "Parent": "Pruebas"},
+        
+        # 2. COMUNICACIONES
         {"Task": "2: COMUNICACIONES", "Level": 0, "Parent": None},
-        {"Task": "Tendido Cableado Datos", "Level": 1, "Parent": "2: COMUNICACIONES"},
+        {"Task": "Tendido Cableado", "Level": 1, "Parent": "2: COMUNICACIONES"},
+        {"Task": "CT1 y CT2", "Level": 2, "Parent": "Tendido Cableado"},
+        {"Task": "Internet y Router", "Level": 1, "Parent": "2: COMUNICACIONES"},
+        {"Task": "Antena / FO Entronque", "Level": 2, "Parent": "Internet y Router"},
+
+        # 3. SENSORES
         {"Task": "3: SENSORES", "Level": 0, "Parent": None},
+        {"Task": "Instalación Equipos", "Level": 1, "Parent": "3: SENSORES"},
+        {"Task": "Soportes Piranómetros", "Level": 2, "Parent": "Instalación Equipos"},
+        {"Task": "Sensores Temperatura", "Level": 2, "Parent": "Instalación Equipos"},
+        {"Task": "Configuración Datalogger", "Level": 2, "Parent": "Instalación Equipos"},
+
+        # 4. ESTRUCTURAS
         {"Task": "4: MONTAJE ESTRUCTURAS", "Level": 0, "Parent": None},
+        {"Task": "Hincado", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
+        {"Task": "Montaje Perfiles", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
+        {"Task": "Montaje Módulos", "Level": 1, "Parent": "4: MONTAJE ESTRUCTURAS"},
+
+        # 5. TRACKERS
         {"Task": "5: TRACKERS Y TSM", "Level": 0, "Parent": None},
+        {"Task": "Instalación TSM", "Level": 1, "Parent": "5: TRACKERS Y TSM"},
+        {"Task": "Comisionado Tracker", "Level": 1, "Parent": "5: TRACKERS Y TSM"},
+        {"Task": "Pruebas de Movimiento", "Level": 1, "Parent": "5: TRACKERS Y TSM"},
+
+        # 6. CTs
         {"Task": "6: CTs", "Level": 0, "Parent": None},
+        {"Task": "Instalación Celdas", "Level": 1, "Parent": "6: CTs"},
+        {"Task": "Conexionado MT/BT", "Level": 1, "Parent": "6: CTs"},
+        {"Task": "Comisionado y Pruebas CT", "Level": 1, "Parent": "6: CTs"},
+
+        # 7. CCTV
         {"Task": "7: CCTV", "Level": 0, "Parent": None},
+        {"Task": "Instalación Postes", "Level": 1, "Parent": "7: CCTV"},
+        {"Task": "Montaje Cámaras", "Level": 1, "Parent": "7: CCTV"},
+        {"Task": "Grabadores y Configuración", "Level": 1, "Parent": "7: CCTV"},
+
+        # 8. SEGURIDAD
         {"Task": "8: SEGURIDAD", "Level": 0, "Parent": None},
+        {"Task": "Cercado Perimetral", "Level": 1, "Parent": "8: SEGURIDAD"},
+        {"Task": "Puertas de Acceso", "Level": 1, "Parent": "8: SEGURIDAD"},
+        {"Task": "Sistemas de Alarma", "Level": 1, "Parent": "8: SEGURIDAD"},
+
+        # 9. ENTRONQUE
         {"Task": "9: ENTRONQUE", "Level": 0, "Parent": None},
+        {"Task": "Montaje Reconectador", "Level": 1, "Parent": "9: ENTRONQUE"},
+        {"Task": "Medidor de Energía", "Level": 1, "Parent": "9: ENTRONQUE"},
+        {"Task": "Pruebas de Protección", "Level": 1, "Parent": "9: ENTRONQUE"},
+
+        # 10. PEM
         {"Task": "10: PEM (CONEXIONADO)", "Level": 0, "Parent": None},
+        {"Task": "Verificación CT/Medidor", "Level": 1, "Parent": "10: PEM (CONEXIONADO)"},
+        {"Task": "Protocolos de Pruebas", "Level": 1, "Parent": "10: PEM (CONEXIONADO)"},
+        {"Task": "Energización", "Level": 1, "Parent": "10: PEM (CONEXIONADO)"},
+
+        # 11. PERMISOS
         {"Task": "11: PERMISOS", "Level": 0, "Parent": None},
-        {"Task": "12: SERVICIOS", "Level": 0, "Parent": None}
+        {"Task": "Tramitación SEC (TE1/TE7)", "Level": 1, "Parent": "11: PERMISOS"},
+        {"Task": "Declaración CEN", "Level": 1, "Parent": "11: PERMISOS"},
+        {"Task": "Recepción Municipal", "Level": 1, "Parent": "11: PERMISOS"},
+
+        # 12. SERVICIOS
+        {"Task": "12: SERVICIOS", "Level": 0, "Parent": None},
+        {"Task": "Limpieza de Módulos", "Level": 1, "Parent": "12: SERVICIOS"},
+        {"Task": "Desbroce Vegetal", "Level": 1, "Parent": "12: SERVICIOS"},
+        {"Task": "Entrega de Obra", "Level": 1, "Parent": "12: SERVICIOS"}
     ]
+    
     rows = []
     for i, t in enumerate(tasks_data):
         rows.append({
@@ -70,17 +134,16 @@ def update_hierarchical_dates(df):
     return df
 
 # ---------- 3. PROCESAMIENTO Y FILTRADO ----------
-# Forzamos orden por ID siempre antes de mostrar
 st.session_state.df = st.session_state.df.sort_values('id').reset_index(drop=True)
 st.session_state.df = update_hierarchical_dates(st.session_state.df)
 
-st.sidebar.header("Vista")
+st.sidebar.header("Control de Vista")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
 
 df_chart = st.session_state.df[st.session_state.df['Level'] <= profundidad].copy()
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 6 * int(x['Level']) + x['Task'], axis=1)
 
-# ---------- 4. GRÁFICO ----------
+# ---------- 4. GRÁFICO ALTAIR ----------
 h = len(df_chart) * 25
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 
@@ -99,32 +162,37 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
 
 st.altair_chart(alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=None))
 
-# ---------- 5. EDITOR ----------
+# ---------- 5. EDITOR MAESTRO ----------
 st.divider()
-st.subheader("📝 Editor de Datos")
-# Usamos un key dinámico basado en la longitud para forzar refresco al insertar
-edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True, key=f"editor_{len(st.session_state.df)}")
+st.subheader("📝 Editor de Tareas (Excel Style)")
+# El key dinámico asegura que al insertar se refresque la vista
+edited_df = st.data_editor(
+    st.session_state.df, 
+    hide_index=True, 
+    use_container_width=True, 
+    key=f"editor_v{len(st.session_state.df)}"
+)
 if not edited_df.equals(st.session_state.df):
     st.session_state.df = update_hierarchical_dates(edited_df)
     st.rerun()
 
-# ---------- 6. LÓGICA DE INSERCIÓN "CORTAR Y PEGAR" ----------
-with st.expander("➕ Añadir Nueva Tarea en su Posición Correcta"):
+# ---------- 6. LÓGICA DE INSERCIÓN QUIRÚRGICA ----------
+with st.expander("➕ Añadir Nueva Tarea en su Grupo"):
     c1, c2 = st.columns(2)
-    new_name = c1.text_input("Nombre de la tarea")
-    new_level = c1.selectbox("Nivel", [0, 1, 2])
-    parents = [None] + st.session_state.df[st.session_state.df['Level'] < new_level]['Task'].tolist()
-    new_parent = c2.selectbox("Padre", parents)
+    new_name = c1.text_input("Nombre de la nueva tarea")
+    new_level = c1.selectbox("Nivel de jerarquía", [0, 1, 2])
     
-    if st.button("Insertar Tarea"):
+    # Solo mostramos padres que tengan un nivel inferior al seleccionado
+    possible_parents = [None] + st.session_state.df[st.session_state.df['Level'] < new_level]['Task'].tolist()
+    new_parent = c2.selectbox("Seleccionar Grupo Padre", possible_parents)
+    
+    if st.button("Insertar Tarea Ahora"):
         df = st.session_state.df.copy()
         
         if new_parent:
-            # 1. Encontrar el índice del padre
+            # Encontrar posición del padre y bajar hasta el final de su rama
             parent_idx = df[df['Task'] == new_parent].index[0]
             insert_pos = parent_idx + 1
-            
-            # 2. Buscar hasta dónde llegan sus descendientes
             for i in range(parent_idx + 1, len(df)):
                 if df.iloc[i]['Level'] > df.loc[parent_idx, 'Level']:
                     insert_pos = i + 1
@@ -133,25 +201,19 @@ with st.expander("➕ Añadir Nueva Tarea en su Posición Correcta"):
         else:
             insert_pos = len(df)
 
-        # 3. Crear la nueva fila
+        # Crear fila
         new_row = pd.DataFrame([{
-            "id": 999, # Temporal
+            "id": 0, # Se reseteará
             "Task": new_name,
             "Level": new_level,
             "Parent": new_parent,
             "Start": df['Start'].min(), 
-            "End": df['Start'].min() + timedelta(days=2)
+            "End": df['Start'].min() + timedelta(days=3)
         }])
 
-        # 4. RECONSTRUIR EL DATAFRAME POR PARTES
-        # Parte superior + Nueva fila + Parte inferior
-        df_top = df.iloc[:insert_pos]
-        df_bottom = df.iloc[insert_pos:]
-        
-        new_df = pd.concat([df_top, new_row, df_bottom]).reset_index(drop=True)
-        
-        # 5. REASIGNAR IDs DESDE CERO
-        new_df['id'] = range(len(new_df))
+        # Reconstrucción física de la tabla
+        new_df = pd.concat([df.iloc[:insert_pos], new_row, df.iloc[insert_pos:]]).reset_index(drop=True)
+        new_df['id'] = range(len(new_df)) # Re-numeración limpia
         
         st.session_state.df = new_df
         st.rerun()
