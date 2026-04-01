@@ -3,12 +3,11 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Jerárquico Dinámico")
+st.set_page_config(layout="wide", page_title="Gantt Jerárquico Profesional")
 
 # ---------- 1. BASE DE DATOS INICIAL ----------
 if "df" not in st.session_state:
     base = datetime(2026, 4, 1)
-    # Lista inicial de tareas (todas las 12 categorías)
     tasks_data = [
         {"Task": "1: INSTALACIÓN ELÉCTRICA", "Level": 0, "Parent": None},
         {"Task": "Tendido Eléctrico BT", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
@@ -31,7 +30,7 @@ if "df" not in st.session_state:
     rows = []
     for i, t in enumerate(tasks_data):
         rows.append({
-            "id": float(i), # Usamos float para permitir ordenación precisa
+            "id": i,
             "Task": t["Task"],
             "Level": t["Level"],
             "Parent": t["Parent"],
@@ -70,31 +69,26 @@ def update_hierarchical_dates(df):
         df.loc[df['Task'] == task, 'End'] = end
     return df
 
-# ---------- 3. PROCESAMIENTO Y ORDEN ----------
-# Ordenamos por el ID actual para mantener la secuencia de filas
-st.session_state.df = st.session_state.df.sort_values(by="id").reset_index(drop=True)
+# ---------- 3. PROCESAMIENTO Y FILTRADO ----------
 st.session_state.df = update_hierarchical_dates(st.session_state.df)
+st.session_state.df = st.session_state.df.sort_values('id').reset_index(drop=True)
 
 st.sidebar.header("Vista")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
 
-df_chart = st.session_state.df.copy()
-df_chart = df_chart[df_chart['Level'] <= profundidad].copy()
+df_chart = st.session_state.df[st.session_state.df['Level'] <= profundidad].copy()
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 6 * int(x['Level']) + x['Task'], axis=1)
 
 # ---------- 4. GRÁFICO ----------
 h = len(df_chart) * 25
-# IMPORTANTE: Ordenamos por 'id' que ahora es nuestra secuencia de filas
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 
 base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=350, height=h)
-
 text_layer = alt.layer(
     base_text.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold'),
     base_text.transform_filter(alt.datum.Level == 1).mark_text(align='left'),
     base_text.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray')
 )
-
 bars = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
     x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')),
     x2='End:T',
@@ -106,13 +100,14 @@ st.altair_chart(alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=N
 
 # ---------- 5. EDITOR ----------
 st.divider()
+st.subheader("📝 Editor de Datos")
 edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
 if not edited_df.equals(st.session_state.df):
     st.session_state.df = update_hierarchical_dates(edited_df)
     st.rerun()
 
-# ---------- 6. LÓGICA DE INSERCIÓN (REORDENAR IDs) ----------
-with st.expander("➕ Añadir Tarea en su grupo"):
+# ---------- 6. LÓGICA DE INSERCIÓN INTELIGENTE ----------
+with st.expander("➕ Añadir Nueva Tarea en su Posición Correcta"):
     c1, c2 = st.columns(2)
     new_name = c1.text_input("Nombre de la tarea")
     new_level = c1.selectbox("Nivel", [0, 1, 2])
@@ -122,31 +117,34 @@ with st.expander("➕ Añadir Tarea en su grupo"):
     if st.button("Insertar Tarea"):
         df = st.session_state.df.copy()
         
-        # 1. Encontrar dónde debe ir (justo después del padre o de su último hijo)
         if new_parent:
-            # Buscamos la última tarea que pertenece a ese grupo
-            indices_grupo = df[(df['Task'] == new_parent) | (df['Parent'] == new_parent)].index
-            insert_pos = indices_grupo.max() + 1
+            # Lógica para encontrar el final de la rama (hijos, nietos, etc.)
+            parent_idx = df[df['Task'] == new_parent].index[0]
+            insert_pos = parent_idx + 1
+            
+            # Buscamos hasta dónde llegan los descendientes de ese padre
+            for i in range(parent_idx + 1, len(df)):
+                if df.iloc[i]['Level'] > df.loc[parent_idx, 'Level']:
+                    insert_pos = i + 1
+                else:
+                    break
         else:
             insert_pos = len(df)
 
-        # 2. Desplazar todos los IDs que van después de esa posición
-        df.loc[df.index >= insert_pos, 'id'] += 1
+        # Desplazar IDs
+        df.loc[df['id'] >= insert_pos, 'id'] += 1
         
-        # 3. Crear la nueva fila con el ID que quedó libre
+        # Nueva fila
         new_row = pd.DataFrame([{
-            "id": float(insert_pos),
+            "id": insert_pos,
             "Task": new_name,
             "Level": new_level,
             "Parent": new_parent,
             "Start": df['Start'].min(), 
-            "End": df['Start'].min() + timedelta(days=2)
+            "End": df['Start'].min() + timedelta(days=5)
         }])
         
-        # 4. Combinar y re-ordenar todo
-        st.session_state.df = pd.concat([df, new_row]).sort_values(by="id").reset_index(drop=True)
-        # Re-indexar IDs para que sean enteros limpios (0, 1, 2, 3...)
+        st.session_state.df = pd.concat([df, new_row]).sort_values('id').reset_index(drop=True)
+        # Limpiar IDs para que sean 0, 1, 2...
         st.session_state.df['id'] = range(len(st.session_state.df))
-        
-        st.success(f"Tarea insertada en la posición {insert_pos}")
         st.rerun()
