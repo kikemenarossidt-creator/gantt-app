@@ -37,7 +37,7 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
         st.text_input("Paneles", "JINKO Solar 550W")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
-# 2. SECCIÓN TAREAS (DISEÑO ORIGINAL RECUPERADO)
+# 2. SECCIÓN TAREAS
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
 
@@ -48,7 +48,6 @@ if ws_tareas:
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
         
-        # --- GRÁFICA GANTT (EL DISEÑO BONITO) ---
         prof = st.sidebar.slider("Detalle Gantt", 0, 2, 2)
         df_p = df_t[df_t['Level'] <= prof].copy()
         df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
@@ -68,20 +67,15 @@ if ws_tareas:
             color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
             tooltip=['Task', 'Empresa a Cargo', 'Start', 'End']
         ).properties(width=750, height=h)
-        
         st.altair_chart(alt.hconcat(text_layer, bars))
         
-        # --- EDITOR Y BOTONES (COMO ESTABAN ANTES) ---
         st.subheader("📝 Gestión de Tareas")
         df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True)
-        
         if st.button("💾 Sincronizar Cambios de Tabla"):
             df_save = df_t_edit.copy()
             df_save['Start'] = df_save['Start'].dt.strftime('%d/%m/%Y')
             df_save['End'] = df_save['End'].dt.strftime('%d/%m/%Y')
-            ws_tareas.clear()
-            ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist())
-            st.rerun()
+            ws_tareas.clear(); ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist()); st.rerun()
 
         col_add, col_del = st.columns(2)
         with col_add:
@@ -98,13 +92,9 @@ if ws_tareas:
                 t_borrar = st.selectbox("Selecciona para eliminar", ["---"] + df_t['Task'].tolist())
                 if st.button("Eliminar Definitivamente"):
                     if t_borrar != "---":
-                        df_final = df_t[df_t['Task'] != t_borrar].copy()
-                        df_final['id'] = range(len(df_final))
-                        ws_tareas.clear()
-                        df_final['Start'] = df_final['Start'].dt.strftime('%d/%m/%Y')
-                        df_final['End'] = df_final['End'].dt.strftime('%d/%m/%Y')
-                        ws_tareas.update([df_final.columns.values.tolist()] + df_final.values.tolist())
-                        st.rerun()
+                        df_f = df_t[df_t['Task'] != t_borrar].copy(); df_f['id'] = range(len(df_f))
+                        ws_tareas.clear(); df_f['Start'] = df_f['Start'].dt.strftime('%d/%m/%Y'); df_f['End'] = df_f['End'].dt.strftime('%d/%m/%Y')
+                        ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist()); st.rerun()
 
 st.divider()
 
@@ -115,10 +105,23 @@ if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if v_r else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
     df_r['ESTADO'] = df_r['ESTADO'].apply(lambda x: str(x).upper() == 'TRUE')
+    
     df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
+    
     if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
         ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
+
+    # FORMULARIO DE RED RESTAURADO
+    with st.expander("➕ Añadir Equipo a la Red"):
+        with st.form("form_add_ip"):
+            f1, f2, f3, f4 = st.columns(4)
+            r_p = f1.text_input("Proveedor"); r_r = f2.text_input("Referencia"); r_m = f3.text_input("Marca"); r_u = f4.text_input("Uso/Equipo")
+            r_ip = st.text_input("Dirección IP")
+            if st.form_submit_button("Añadir Equipo"):
+                if r_ip:
+                    ws_red.append_row([r_p, r_r, r_m, r_u, r_ip, "FALSE"])
+                    st.rerun()
 
 st.divider()
 
@@ -129,10 +132,13 @@ if ws_creds:
     v_c = ws_creds.get_all_values()
     df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if v_c else pd.DataFrame(columns=["EMPRESA","PLATAFORMA","USUARIO","CONTRASEÑA"])
     df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True)
+    
     if st.button("💾 Guardar Credenciales"):
         ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.values.tolist()); st.rerun()
+        
     with st.expander("➕ Añadir Credencial"):
         with st.form("f_creds"):
-            c_e = st.text_input("Empresa"); c_p = st.text_input("Plataforma"); c_u = st.text_input("Usuario"); c_pw = st.text_input("Contraseña")
-            if st.form_submit_button("Registrar"):
+            c1, c2 = st.columns(2)
+            c_e = c1.text_input("Empresa"); c_p = c2.text_input("Plataforma"); c_u = c1.text_input("Usuario"); c_pw = c2.text_input("Contraseña")
+            if st.form_submit_button("Registrar Credencial"):
                 ws_creds.append_row([c_e, c_p, c_u, c_pw]); st.rerun()
