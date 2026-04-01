@@ -3,78 +3,77 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Jerárquico")
+st.set_page_config(layout="wide", page_title="Gantt Jerárquico Editable")
 
-# 1. BASE DE DATOS (Se mantiene en el estado de la sesión)
+# ---------- 1. BASE DE DATOS INICIAL ----------
 if "df" not in st.session_state:
     base = datetime(2026, 4, 1)
     tasks_data = [
-        ("1: INSTALACIÓN ELÉCTRICA", 0), ("Tendido Eléctrico BT", 1), 
-        ("Cuadro protecciones SC", 2), ("Cuadro Comunicaciones SC", 2),
-        ("Puestas a Tierra", 1), ("Vallado", 2),
-        ("2: COMUNICACIONES", 0), ("Tendido Cableado", 1), ("CT1", 2),
-        ("3: SENSORES", 0), ("Instalación Equipos", 1)
+        {"Task": "1: INSTALACIÓN ELÉCTRICA", "Level": 0, "Parent": None},
+        {"Task": "Tendido Eléctrico BT", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
+        {"Task": "Cuadro protecciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
+        {"Task": "Cuadro Comunicaciones SC", "Level": 2, "Parent": "Tendido Eléctrico BT"},
+        {"Task": "Puestas a Tierra", "Level": 1, "Parent": "1: INSTALACIÓN ELÉCTRICA"},
+        {"Task": "Vallado", "Level": 2, "Parent": "Puestas a Tierra"},
+        {"Task": "2: COMUNICACIONES", "Level": 0, "Parent": None},
+        {"Task": "Tendido Cableado", "Level": 1, "Parent": "2: COMUNICACIONES"},
+        {"Task": "CT1", "Level": 2, "Parent": "Tendido Cableado"},
+        {"Task": "3: SENSORES", "Level": 0, "Parent": None},
+        {"Task": "Instalación Equipos", "Level": 1, "Parent": "3: SENSORES"},
     ]
     rows = []
-    for i, (name, level) in enumerate(tasks_data):
+    for i, t in enumerate(tasks_data):
         rows.append({
-            "id": i, "Task": name, "Level": level,
+            "id": i,
+            "Task": t["Task"],
+            "Level": t["Level"],
+            "Parent": t["Parent"],
             "Start": base + timedelta(days=i*2),
-            "End": base + timedelta(days=i*2 + 3),
+            "End": base + timedelta(days=i*2 + 3)
         })
     st.session_state.df = pd.DataFrame(rows)
 
-# 2. LÓGICA DE FECHAS (Niveles 0 y 1 dependen del nivel inferior)
+# ---------- 2. FUNCIÓN PARA ACTUALIZAR FECHAS JERÁRQUICAS ----------
 def update_hierarchical_dates(df):
     df = df.copy()
-    for level in [1, 0]:
-        for i in range(len(df)):
-            if df.loc[i, 'Level'] == level:
-                children = df[(df.index > i) & (df['Level'] > level)]
-                # Solo tomamos los hijos hasta que aparezca otro del mismo nivel o superior
-                valid_children = []
-                for _, child in children.iterrows():
-                    if child['Level'] <= level: break
-                    valid_children.append(child)
-                
-                if valid_children:
-                    child_df = pd.DataFrame(valid_children)
-                    df.loc[i, 'Start'] = child_df['Start'].min()
-                    df.loc[i, 'End'] = child_df['End'].max()
+    # Iterar niveles de abajo hacia arriba (2 → 1 → 0)
+    for level in sorted(df['Level'].unique(), reverse=True):
+        for i, row in df[df['Level'] == level].iterrows():
+            # Para niveles >0, actualizar fechas del padre
+            if row['Parent']:
+                parent_idx = df[df['Task'] == row['Parent']].index[0]
+                parent_start = min(df.loc[parent_idx, 'Start'], row['Start'])
+                parent_end = max(df.loc[parent_idx, 'End'], row['End'])
+                df.at[parent_idx, 'Start'] = parent_start
+                df.at[parent_idx, 'End'] = parent_end
     return df
 
-# Ejecutamos el cálculo de fechas
+# Ejecutar actualización de fechas
 df_final = update_hierarchical_dates(st.session_state.df)
 
-# 3. FILTRADO POR NIVEL (Para el efecto retráctil)
+# ---------- 3. FILTRADO POR NIVEL (Para efecto retráctil) ----------
 st.sidebar.header("Vista de Diagrama")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
-
-# AQUÍ SE DEFINE df_chart (Antes de usarlo)
 df_chart = df_final[df_final['Level'] <= profundidad].copy()
-
-# CREACIÓN DE LA SANGRÍA (Para evitar los espacios en blanco de las columnas)
-# Usamos \xa0 para que el navegador respete los espacios al inicio
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 4 * int(x['Level']) + x['Task'], axis=1)
 
-# 4. CONFIGURACIÓN DEL GRÁFICO
+# ---------- 4. GRÁFICO ALTair ----------
 h = len(df_chart) * 25
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 
-# Capa de texto única (Simula el árbol de Excel)
+# Texto jerárquico
 base_text = alt.Chart(df_chart).encode(
     text='Display_Task:N',
     **col_config
 ).properties(width=300, height=h)
 
-# Aplicamos estilos según el nivel para que se vea como en tu imagen
 text_layer = alt.layer(
     base_text.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold'),
     base_text.transform_filter(alt.datum.Level == 1).mark_text(align='left'),
     base_text.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray')
 )
 
-# Barras de Gantt
+# Barras Gantt
 bars = alt.Chart(df_chart).mark_bar(cornerRadius=2).encode(
     x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')),
     x2='End:T',
@@ -82,10 +81,39 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=2).encode(
     **col_config
 ).properties(width=600, height=h)
 
-# Unión final sin espacios intermedios
 st.altair_chart(alt.hconcat(text_layer, bars, spacing=10).configure_view(stroke=None))
 
-# 5. EDITOR MAESTRO
+# ---------- 5. EDITOR MAESTRO Y ADICIÓN DE NUEVAS TAREAS ----------
 st.divider()
-st.subheader("📝 Editor Maestro")
-st.session_state.df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
+st.subheader("📝 Editor y Añadir Tareas")
+
+# Editor existente
+st.session_state.df = st.data_editor(
+    st.session_state.df,
+    hide_index=True,
+    use_container_width=True
+)
+
+# Añadir nueva tarea
+with st.expander("➕ Añadir Nueva Tarea"):
+    new_task_name = st.text_input("Nombre de la Tarea")
+    new_task_level = st.selectbox("Nivel", [0,1,2])
+    
+    # Elegir padre según nivel
+    possible_parents = [None] + st.session_state.df[st.session_state.df['Level'] < new_task_level]['Task'].tolist()
+    new_task_parent = st.selectbox("Grupo Padre", possible_parents)
+    
+    new_task_start = st.date_input("Fecha Inicio", datetime.today())
+    new_task_end = st.date_input("Fecha Fin", datetime.today() + timedelta(days=2))
+    
+    if st.button("Añadir Tarea"):
+        new_id = st.session_state.df['id'].max() + 1
+        st.session_state.df.loc[new_id] = {
+            "id": new_id,
+            "Task": new_task_name,
+            "Level": new_task_level,
+            "Parent": new_task_parent,
+            "Start": pd.Timestamp(new_task_start),
+            "End": pd.Timestamp(new_task_end)
+        }
+        st.success(f"Tarea '{new_task_name}' añadida correctamente.")
