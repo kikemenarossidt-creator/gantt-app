@@ -3,9 +3,9 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Jerárquico Compacto")
+st.set_page_config(layout="wide", page_title="Gantt Profesional Compacto")
 
-# 1. DATOS (Cargamos la estructura jerárquica)
+# 1. BASE DE DATOS COMPLETA
 if "df" not in st.session_state:
     base = datetime(2026, 4, 1)
     tasks_data = [
@@ -34,21 +34,24 @@ if "df" not in st.session_state:
 
 df = st.session_state.df.copy()
 
-# 2. GRÁFICO CON SANGRÍA DINÁMICA (Sin columnas separadas)
+# --- EL TRUCO PARA EL ESCALONADO COMPACTO ---
+# Calculamos el desplazamiento físico (padding) en una columna nueva
+# Nivel 0 = 0px, Nivel 1 = 15px, Nivel 2 = 30px
+df['padding'] = df['Level'] * 15
+
+# 2. GRÁFICO
 h = len(df) * 22
 
-# Columna de Texto Única con sangría (dx) variable según el Nivel
+# Columna de nombres con desplazamiento calculado desde Pandas
 task_labels = alt.Chart(df).mark_text(align='left', size=11).encode(
     y=alt.Y('id:O', axis=None, sort='ascending'),
     text='Task:N',
-    # La sangría se calcula: Nivel * 15 píxeles
-    dx=alt.expr('datum.Level * 15'),
-    # Estilo: Negrita para nivel 0, normal para el resto
+    x=alt.X('padding:Q', axis=None), # Usamos una escala cuantitativa invisible para la posición X
     fontWeight=alt.condition('datum.Level == 0', alt.value('bold'), alt.value('normal')),
-    color=alt.condition('datum.Level == 2', alt.value('#555'), alt.value('black'))
-).properties(width=300, height=h)
+    color=alt.condition('datum.Level == 2', alt.value('#666'), alt.value('black'))
+).properties(width=350, height=h)
 
-# Barras del Gantt pegadas al texto
+# Barras del cronograma
 bars = alt.Chart(df).mark_bar(cornerRadius=2, size=16).encode(
     x=alt.X('Start:T', axis=alt.Axis(title=None, format='%d/%m')),
     x2='End:T',
@@ -56,11 +59,10 @@ bars = alt.Chart(df).mark_bar(cornerRadius=2, size=16).encode(
     color=alt.Color('Level:N', scale=alt.Scale(range=['#004e92', '#00a1ff', '#b3e0ff']), legend=None)
 ).properties(width=600, height=h)
 
-# Concatenación con espacio mínimo
-# Usamos spacing=10 para que las barras estén cerca de los nombres
-layout = alt.hconcat(task_labels, bars, spacing=10).configure_view(stroke=None)
+# Concatenamos con un espacio mínimo (spacing=5) para que estén pegados
+layout = alt.hconcat(task_labels, bars, spacing=5).configure_view(stroke=None)
 
 st.altair_chart(layout, use_container_width=False)
 
-# 3. TABLA DE DATOS
+# 3. EDITOR
 st.data_editor(st.session_state.df, hide_index=True, use_container_width=True)
