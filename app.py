@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
+import streamlit.components.v1 as components
 
-st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Scroll Corregido")
+st.set_page_config(layout="wide", page_title="Gantt Solar con Scroll Real")
 
 # ---------- 1. BASE DE DATOS INICIAL ----------
 if "df" not in st.session_state:
@@ -89,53 +90,53 @@ profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
 alt_visor = st.sidebar.slider("Altura del visor (px)", 200, 1000, 500)
 
 df_chart = st.session_state.df[st.session_state.df['Level'] <= profundidad].copy()
-df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 6 * int(x['Level']) + x['Task'], axis=1)
+df_chart['Display_Task'] = df_chart.apply(lambda x: "&nbsp;" * 6 * int(x['Level']) + x['Task'], axis=1)
 
-# ---------- 4. GRÁFICO ----------
-h_total = max(len(df_chart) * 30, 100)
+# ---------- 4. CONSTRUCCIÓN DEL GRÁFICO (ALTAIR A HTML) ----------
+h_por_fila = 30
+h_total = max(len(df_chart) * h_por_fila, 150)
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 
-base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=350, height=h_total)
+base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=300, height=h_total)
 text_layer = alt.layer(
-    base_text.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold'),
-    base_text.transform_filter(alt.datum.Level == 1).mark_text(align='left'),
-    base_text.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray')
+    base_text.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold', fontSize=13),
+    base_text.transform_filter(alt.datum.Level == 1).mark_text(align='left', fontSize=12),
+    base_text.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray', fontSize=11)
 )
 bars = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
-    x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')),
+    x=alt.X('Start:T', axis=alt.Axis(format='%d/%m', title="Fecha")),
     x2='End:T',
     color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
+    tooltip=['Task', 'Start', 'End'],
     **col_config
-).properties(width=700, height=h_total)
+).properties(width=600, height=h_total)
 
-full_chart = alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=None)
+chart_html = alt.hconcat(text_layer, bars, spacing=10).configure_view(stroke=None).to_json()
 
-# ---------- SOLUCIÓN AL VISOR (CSS INTEGRADO) ----------
-st.subheader("📊 Cronograma Gantt")
-# Estilo para crear un contenedor con scroll que SI contenga al gráfico
-st.markdown(
-    f"""
+# ---------- 5. RENDERIZADO CON IFRAME (SCROLL REAL) ----------
+st.subheader("📊 Cronograma de Obra")
+
+# Usamos un componente de HTML puro para forzar el scroll
+html_string = f"""
+    <div id="vis" style="width: 1000px; height: {h_total}px;"></div>
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+    <script>
+        vegaEmbed('#vis', {chart_html});
+    </script>
     <style>
-    .scroll-container {{
-        height: {alt_visor}px;
-        overflow-y: auto;
-        overflow-x: hidden;
-        border: 1px solid #e6e6e6;
-        padding: 1rem;
-        border-radius: 10px;
-        background-color: white;
-    }}
+        body {{ margin: 0; overflow-y: hidden; background-color: transparent; }}
+        /* Estilizar el scroll para que se vea moderno */
+        ::-webkit-scrollbar {{ width: 8px; }}
+        ::-webkit-scrollbar-thumb {{ background: #ccc; border-radius: 4px; }}
     </style>
-    """, unsafe_allow_html=True
-)
+"""
 
-# Renderizamos dentro del div con scroll
-with st.container():
-    st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-    st.altair_chart(full_chart, use_container_width=False) # IMPORTANTE: False para que no rompa el visor
-    st.markdown('</div>', unsafe_allow_html=True)
+# Esta función de Streamlit crea el visor con scroll vertical
+components.html(html_string, height=alt_visor, scrolling=True)
 
-# ---------- 5. EDITOR Y ACCIONES ----------
+# ---------- 6. EDITOR Y ACCIONES ----------
 st.divider()
 st.subheader("📝 Gestión de Datos")
 edited_df = st.data_editor(st.session_state.df, hide_index=True, use_container_width=True, key=f"ed_{len(st.session_state.df)}")
