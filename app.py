@@ -13,7 +13,8 @@ def conectar_google_sheets():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
     # Reemplaza con el nombre exacto de tu archivo
-    sheet = client.open("Nombre_De_Tu_Archivo_Sheets").sheet1 
+    ID_HOJA = "TU_ID_AQUI" # Es el código largo entre /d/ y /edit
+sheet = client.open_by_key(ID_HOJA).worksheet("Tareas")
     return sheet
 
 st.set_page_config(layout="wide", page_title="Gantt Solar Sync")
