@@ -3,7 +3,7 @@ import pandas as pd
 import altair as alt
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Scroll")
+st.set_page_config(layout="wide", page_title="Gantt Solar Pro - Scroll Corregido")
 
 # ---------- 1. BASE DE DATOS INICIAL ----------
 if "df" not in st.session_state:
@@ -86,13 +86,13 @@ st.session_state.df = update_hierarchical_dates(st.session_state.df)
 
 st.sidebar.header("Vista")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
-alt_visor = st.sidebar.number_input("Altura del visor (px)", 300, 1000, 500)
+alt_visor = st.sidebar.slider("Altura del visor (px)", 200, 1000, 500)
 
 df_chart = st.session_state.df[st.session_state.df['Level'] <= profundidad].copy()
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 6 * int(x['Level']) + x['Task'], axis=1)
 
-# ---------- 4. GRÁFICO CON SCROLL ----------
-h_total = max(len(df_chart) * 30, 100) # Altura real de la gráfica
+# ---------- 4. GRÁFICO ----------
+h_total = max(len(df_chart) * 30, 100)
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 
 base_text = alt.Chart(df_chart).encode(text='Display_Task:N', **col_config).properties(width=350, height=h_total)
@@ -108,18 +108,32 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=3).encode(
     **col_config
 ).properties(width=700, height=h_total)
 
-# Unimos las capas
 full_chart = alt.hconcat(text_layer, bars, spacing=5).configure_view(stroke=None)
 
-# CREAMOS EL CONTENEDOR CON SCROLL USANDO HTML
+# ---------- SOLUCIÓN AL VISOR (CSS INTEGRADO) ----------
+st.subheader("📊 Cronograma Gantt")
+# Estilo para crear un contenedor con scroll que SI contenga al gráfico
 st.markdown(
     f"""
-    <div style="height: {alt_visor}px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
-    """, 
-    unsafe_allow_html=True
+    <style>
+    .scroll-container {{
+        height: {alt_visor}px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        border: 1px solid #e6e6e6;
+        padding: 1rem;
+        border-radius: 10px;
+        background-color: white;
+    }}
+    </style>
+    """, unsafe_allow_html=True
 )
-st.altair_chart(full_chart)
-st.markdown("</div>", unsafe_allow_html=True)
+
+# Renderizamos dentro del div con scroll
+with st.container():
+    st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+    st.altair_chart(full_chart, use_container_width=False) # IMPORTANTE: False para que no rompa el visor
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------- 5. EDITOR Y ACCIONES ----------
 st.divider()
