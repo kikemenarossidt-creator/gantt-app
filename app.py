@@ -23,7 +23,7 @@ def conectar_hoja(client, nombre_pestaña):
 
 client = obtener_cliente_gspread()
 
-# 1. FICHA TÉCNICA (ACTUALIZADA CON NUEVA INFO)
+# 1. FICHA TÉCNICA
 st.title("☀️ Control Integral de Proyecto")
 with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=True):
     c1, c2, c3 = st.columns(3)
@@ -37,17 +37,65 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=True):
         st.number_input("Potencia Pico (MWp)", value=10.5)
         st.text_input("Inversores", "SUNGROW SG250HX")
         st.text_input("Paneles", "JINKO Solar 550W")
-        st.text_input("Trackers", "NextTracker 1P")
     with c3:
         st.subheader("🏢 Info CGE / Seguridad")
         st.text_input("Nombre proyecto para CGE", "Maule X")
         st.text_input("Nombre del alimentador", "DUAO 15 KV")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
-# 2. SECCIÓN TAREAS
+# 2. SECCIÓN HITOS DE PAGO (NUEVA)
+st.header("💰 Hitos de Pago (Payment Milestones)")
+ws_hitos = conectar_hoja(client, "Hitos")
+
+# Datos iniciales si la hoja está vacía
+hitos_offshore = [
+    ["Offshore", "Notice to Proceed", "10%"],
+    ["Offshore", "Shipping of modules", "32%"],
+    ["Offshore", "Shipping of structures", "25%"],
+    ["Offshore", "Shipping of inverters", "28%"],
+    ["Offshore", "Provisional acceptance", "5%"]
+]
+hitos_onshore = [
+    ["Onshore", "Site Mobilization", "10%"],
+    ["Onshore", "Civil Work", "10%"],
+    ["Onshore", "Structure piling (50%)", "15%"],
+    ["Onshore", "Installation of trackers (50%)", "10%"],
+    ["Onshore", "Installation of modules (50%)", "10%"],
+    ["Onshore", "Installation of trackers (100%)", "10%"],
+    ["Onshore", "Installation of modules (100%)", "10%"],
+    ["Onshore", "Mechanical completion", "7,5%"],
+    ["Onshore", "Energization", "7,5%"],
+    ["Onshore", "Provisional Acceptance", "10%"]
+]
+
+if ws_hitos:
+    v_h = ws_hitos.get_all_values()
+    if len(v_h) <= 1: # Si está vacío, cargar por defecto
+        df_h = pd.DataFrame(hitos_offshore + hitos_onshore, columns=["TIPO", "HITO", "PORCENTAJE"])
+    else:
+        df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
+
+    tab_off, tab_on = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
+    
+    with tab_off:
+        df_off = df_h[df_h["TIPO"] == "Offshore"]
+        ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off")
+    
+    with tab_on:
+        df_on = df_h[df_h["TIPO"] == "Onshore"]
+        ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on")
+
+    if st.button("💾 Guardar Hitos de Pago"):
+        df_final_hitos = pd.concat([ed_off, ed_on])
+        ws_hitos.clear()
+        ws_hitos.update([df_final_hitos.columns.values.tolist()] + df_final_hitos.values.tolist())
+        st.success("Hitos actualizados")
+
+st.divider()
+
+# 3. SECCIÓN TAREAS (GANTT)
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
-
 if ws_tareas:
     data_t = ws_tareas.get_all_records()
     if data_t:
@@ -61,16 +109,13 @@ if ws_tareas:
         
         h = max(len(df_p) * 25, 200)
         base = alt.Chart(df_p).encode(y=alt.Y('id:O', axis=None, sort='ascending'))
-        
         text_layer = alt.layer(
             base.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold', fontSize=13),
             base.transform_filter(alt.datum.Level == 1).mark_text(align='left', fontSize=12),
             base.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray')
         ).encode(text='Display:N').properties(width=350, height=h)
-        
         bars = base.mark_bar(cornerRadius=3).encode(
-            x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')),
-            x2='End:T',
+            x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')), x2='End:T',
             color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
             tooltip=['Task', 'Empresa a Cargo']
         ).properties(width=750, height=h)
@@ -84,31 +129,29 @@ if ws_tareas:
             df_save['End'] = df_save['End'].dt.strftime('%d/%m/%Y')
             ws_tareas.clear(); ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist()); st.rerun()
 
-        col_add, col_del = st.columns(2)
-        with col_add:
+        c_add, c_del = st.columns(2)
+        with c_add:
             with st.expander("➕ Añadir Nueva Tarea"):
-                with st.form("form_add_task"):
-                    nt = st.text_input("Nombre de la Tarea")
-                    ne = st.text_input("Empresa a Cargo"); nl = st.selectbox("Nivel", [0, 1, 2])
-                    if st.form_submit_button("Añadir a la lista"):
-                        ws_tareas.append_row([len(df_t), nt, nl, "", ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now() + timedelta(days=5)).strftime('%d/%m/%Y')])
+                with st.form("f_add_task"):
+                    nt = st.text_input("Nombre Tarea"); ne = st.text_input("Empresa"); nl = st.selectbox("Nivel", [0,1,2])
+                    if st.form_submit_button("Añadir"):
+                        ws_tareas.append_row([len(df_t), nt, nl, "", ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(5)).strftime('%d/%m/%Y')])
                         st.rerun()
-        with col_del:
+        with c_del:
             with st.expander("🗑️ Eliminar Tarea"):
-                t_borrar = st.selectbox("Selecciona para eliminar", ["---"] + df_t['Task'].tolist())
+                t_b = st.selectbox("Tarea a eliminar", ["---"] + df_t['Task'].tolist())
                 if st.button("Eliminar Definitivamente"):
-                    if t_borrar != "---":
-                        df_f = df_t[df_t['Task'] != t_borrar].copy(); df_f['id'] = range(len(df_f))
-                        ws_tareas.clear(); df_f['Start'] = df_f['Start'].dt.strftime('%d/%m/%Y'); df_f['End'] = df_f['End'].dt.strftime('%d/%m/%Y')
-                        ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist()); st.rerun()
+                    df_f = df_t[df_t['Task'] != t_b].copy(); df_f['id'] = range(len(df_f))
+                    ws_tareas.clear(); df_f['Start'] = df_f['Start'].dt.strftime('%d/%m/%Y'); df_f['End'] = df_f['End'].dt.strftime('%d/%m/%Y')
+                    ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist()); st.rerun()
 
 st.divider()
 
-# 3. SECCIÓN RED (IPs)
+# 4. SECCIÓN RED (IPs)
 st.header("🌐 Configuración de Red e IPs")
 c_net1, c_net2 = st.columns(2)
-with c_net1: st.text_input("Net mask:", value="255.255.255.0", key="net_mask_input")
-with c_net2: st.text_input("Gateway:", value="192.168.30.1", key="gateway_input")
+with c_net1: st.text_input("Net mask:", value="255.255.255.0", key="nm_in")
+with c_net2: st.text_input("Gateway:", value="192.168.30.1", key="gw_in")
 
 ws_red = conectar_hoja(client, "Red")
 if ws_red:
@@ -119,18 +162,17 @@ if ws_red:
     if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
         ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
-
-    with st.expander("➕ Añadir Equipo a la Red"):
-        with st.form("form_add_ip"):
+    with st.expander("➕ Añadir Equipo"):
+        with st.form("f_add_ip"):
             f1, f2, f3, f4 = st.columns(4)
-            r_p, r_r, r_m, r_u = f1.text_input("Proveedor"), f2.text_input("Ref"), f3.text_input("Marca"), f4.text_input("Uso")
-            r_ip = st.text_input("Dirección IP")
-            if st.form_submit_button("Añadir Equipo"):
-                if r_ip: ws_red.append_row([r_p, r_r, r_m, r_u, r_ip, "FALSE"]); st.rerun()
+            p, r, m, u = f1.text_input("Prov"), f2.text_input("Ref"), f3.text_input("Marca"), f4.text_input("Uso")
+            ip = st.text_input("IP")
+            if st.form_submit_button("Añadir IP"):
+                ws_red.append_row([p, r, m, u, ip, "FALSE"]); st.rerun()
 
 st.divider()
 
-# 4. SECCIÓN CREDENCIALES
+# 5. SECCIÓN CREDENCIALES
 st.header("🔑 Credenciales de Planta")
 ws_creds = conectar_hoja(client, "Credenciales")
 if ws_creds:
@@ -142,6 +184,6 @@ if ws_creds:
     with st.expander("➕ Añadir Credencial"):
         with st.form("f_creds"):
             c1, c2 = st.columns(2)
-            c_e, c_p, c_u, c_pw = c1.text_input("Empresa"), c2.text_input("Plataforma"), c1.text_input("Usuario"), c2.text_input("Contraseña")
-            if st.form_submit_button("Registrar Credencial"):
-                ws_creds.append_row([c_e, c_p, c_u, c_pw]); st.rerun()
+            ce, cp, cu, cpw = c1.text_input("Empresa"), c2.text_input("Plataforma"), c1.text_input("Usuario"), c2.text_input("Pass")
+            if st.form_submit_button("Registrar"):
+                ws_creds.append_row([ce, cp, cu, cpw]); st.rerun()
