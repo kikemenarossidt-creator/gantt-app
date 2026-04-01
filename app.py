@@ -5,14 +5,18 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(layout="wide", page_title="Gestión Planta Solar")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(layout="wide", page_title="Gestión Planta Solar Pro")
 
 def obtener_cliente_gspread():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    return gspread.authorize(creds)
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"Error en Credenciales: {e}")
+        return None
 
 def conectar_hoja(client, nombre_pestaña):
     ID_HOJA = "1n63OLrzPg27ekpipyW_XF-kXfpg4F-yEkRc0gKynrys"
@@ -74,7 +78,7 @@ if ws_tareas:
         
         st.altair_chart(alt.hconcat(text_layer, bars))
         
-        # --- TABLA EDITOR ---
+        # --- EDITOR TAREAS ---
         st.subheader("📝 Gestión de Tareas")
         df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True)
         
@@ -87,9 +91,8 @@ if ws_tareas:
             st.success("¡Tareas actualizadas!")
             st.rerun()
 
-        # --- AÑADIR Y ELIMINAR (COMO ESTABA ANTES) ---
+        # --- AÑADIR Y ELIMINAR TAREAS ---
         col_add, col_del = st.columns(2)
-        
         with col_add:
             with st.expander("➕ Añadir Nueva Tarea"):
                 with st.form("form_add_task"):
@@ -103,7 +106,6 @@ if ws_tareas:
                                      (datetime.now() + timedelta(days=5)).strftime('%d/%m/%Y')]
                         ws_tareas.append_row(nueva_fila)
                         st.rerun()
-
         with col_del:
             with st.expander("🗑️ Eliminar Tarea"):
                 t_borrar = st.selectbox("Selecciona tarea para eliminar", ["---"] + df_t['Task'].tolist())
@@ -123,30 +125,45 @@ st.divider()
 st.header("🌐 Configuración de Red e IPs")
 
 c_net1, c_net2 = st.columns(2)
-with c_net1: st.text_input("Net mask:", value="255.255.255.0")
-with c_net2: st.text_input("Gateway:", value="192.168.30.1")
+with c_net1: st.text_input("Net mask:", value="255.255.255.0", key="mask_input")
+with c_net2: st.text_input("Gateway:", value="192.168.30.1", key="gw_input")
 
 ws_red = conectar_hoja(client, "Red")
 
 if ws_red:
-    data_r = ws_red.get_all_records()
-    if data_r:
-        df_r = pd.DataFrame(data_r)
+    try:
+        # Cargamos datos y manejamos posibles celdas vacías
+        vals_r = ws_red.get_all_values()
+        if len(vals_r) > 0:
+            # Usamos la primera fila como cabecera
+            df_r = pd.DataFrame(vals_r[1:], columns=vals_r[0])
+            # Convertimos la columna ESTADO a booleano para el checkbox
+            df_r['ESTADO'] = df_r['ESTADO'].apply(lambda x: str(x).upper() == 'TRUE')
+        else:
+            df_r = pd.DataFrame(columns=["PROVEEDOR", "REFERENCIA", "MARCA", "USO", "DIRECCION IP", "ESTADO"])
+
+        # Editor de Red
         df_r_edit = st.data_editor(
             df_r,
             hide_index=True,
             use_container_width=True,
             column_config={
                 "ESTADO": st.column_config.CheckboxColumn("Comunicando", default=False),
-                "DIRECCION IP": st.column_config.TextColumn("Dirección IP", validate=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+                "DIRECCION IP": st.column_config.TextColumn("Dirección IP", required=True)
             }
         )
+        
         if st.button("💾 Guardar Estado de Red"):
             ws_red.clear()
+            # Aseguramos que los booleanos se guarden como texto 'TRUE'/'FALSE' para Sheets
             ws_red.update([df_r_edit.columns.values.tolist()] + df_r_edit.values.tolist())
             st.success("Red actualizada")
             st.rerun()
 
+    except Exception as e:
+        st.error(f"Error al cargar red: {e}")
+
+    # Formulario para añadir IP
     with st.expander("➕ Añadir Equipo a la Red"):
         with st.form("form_add_ip"):
             f1, f2, f3, f4 = st.columns(4)
@@ -154,7 +171,13 @@ if ws_red:
             r_ref = f2.text_input("Referencia")
             r_marca = f3.text_input("Marca")
             r_uso = f4.text_input("Uso/Equipo")
-            r_ip = st.text_input("IP")
+            r_ip = st.text_input("IP (Obligatoria)")
             if st.form_submit_button("Añadir a Red"):
-                ws_red.append_row([r_prov, r_ref, r_marca, r_uso, r_ip, False])
-                st.rerun()
+                if r_ip:
+                    # Si la hoja está totalmente vacía, ponemos cabeceras
+                    if not ws_red.get_all_values():
+                        ws_red.append_row(["PROVEEDOR", "REFERENCIA", "MARCA", "USO", "DIRECCION IP", "ESTADO"])
+                    ws_red.append_row([r_prov, r_ref, r_marca, r_uso, r_ip, "FALSE"])
+                    st.rerun()
+                else:
+                    st.warning("Debes introducir al menos la Dirección IP.")
