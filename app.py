@@ -147,7 +147,7 @@ if ws_creds:
 
 st.divider()
 
-# --- 5. SECCIÓN HITOS DE PAGO (NUEVO DISEÑO LIMPIO) ---
+# --- 5. SECCIÓN HITOS DE PAGO (CORREGIDA) ---
 st.header("💰 Hitos de Pago (Payment Milestones)")
 ws_hitos = conectar_hoja(client, "Hitos")
 if ws_hitos:
@@ -155,29 +155,42 @@ if ws_hitos:
         v_h = ws_hitos.get_all_values()
         if len(v_h) > 1:
             df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
-            if 'PAGADO' not in df_h.columns: df_h['PAGADO'] = "FALSE"
-            df_h['PAGADO'] = df_h['PAGADO'].apply(lambda x: str(x).upper() == 'TRUE')
+            if 'PAGADO' not in df_h.columns: 
+                df_h['PAGADO'] = "FALSE"
+            
+            # Convertir a booleano de forma segura para el editor
+            df_h['PAGADO'] = df_h['PAGADO'].astype(str).str.upper() == 'TRUE'
         else:
             df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
 
         tab1, tab2 = st.tabs(["🚢 Offshore Payments", "🏗️ Onshore Payments"])
-        cfg_hitos = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "PORCENTAJE": st.column_config.TextColumn("Cuota %")}
+        cfg_hitos = {
+            "PAGADO": st.column_config.CheckboxColumn("Pagado"), 
+            "PORCENTAJE": st.column_config.TextColumn("Cuota %")
+        }
 
         with tab1:
-            df_off = df_h[df_h["TIPO"] == "Offshore"]
+            df_off = df_h[df_h["TIPO"] == "Offshore"].copy()
             ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", 
                                    column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_hitos)
         with tab2:
-            df_on = df_h[df_h["TIPO"] == "Onshore"]
+            df_on = df_h[df_h["TIPO"] == "Onshore"].copy()
             ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", 
                                   column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_hitos)
 
         if st.button("💾 Guardar Cambios en Hitos"):
-            ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"
+            # Asegurar que el TIPO se mantenga
+            ed_off["TIPO"] = "Offshore"
+            ed_on["TIPO"] = "Onshore"
             df_final = pd.concat([ed_off, ed_on])
-            df_final['PAGADO'] = df_final['PAGADO'].astype(str).upper()
-            ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist())
-            st.success("Hitos actualizados correctamente"); st.rerun()
+            
+            # CORRECCIÓN AQUÍ: Convertimos a string y luego a mayúsculas correctamente
+            df_final['PAGADO'] = df_final['PAGADO'].astype(str).str.upper()
+            
+            ws_hitos.clear()
+            ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist())
+            st.success("Hitos guardados correctamente")
+            st.rerun()
             
         with st.expander("➕ Añadir Nuevo Hito de Pago"):
             with st.form("f_add_hito"):
