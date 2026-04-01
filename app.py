@@ -459,5 +459,3 @@ if ws_spare:
             if st.form_submit_button("Añadir"): ws_spare.append_row([cat, ds, str(un)]); st.rerun()
 
 
-
-este era el codigo bueno te falta cambiar para que las spare parts tengan añadir y eliminar
