@@ -78,21 +78,26 @@ if ws_tareas:
         df_t = pd.DataFrame(data_t)
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
-        prof = st.sidebar.slider("Nivel Gantt", 0, 2, 2)
-        df_p = df_t[df_t['Level'] <= prof].copy()
-        df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
-        chart = alt.Chart(df_p).mark_bar(cornerRadius=3).encode(
-            x=alt.X('Start:T'), x2='End:T', y=alt.Y('id:O', axis=None, sort='ascending'),
-            color=alt.Color('Level:N', legend=None), tooltip=['Task', 'Progress']
-        ).properties(width=800, height=300)
-        st.altair_chart(chart, use_container_width=True)
         
-        st.subheader("📝 Gestión Dinámica de Tareas")
+        # Filtro para el gráfico (evita el ValueError de Altair)
+        df_chart = df_t.dropna(subset=['Start', 'End']).copy()
+        
+        if not df_chart.empty:
+            prof = st.sidebar.slider("Nivel Gantt", 0, 2, 2)
+            df_p = df_chart[df_chart['Level'] <= prof].copy()
+            chart = alt.Chart(df_p).mark_bar(cornerRadius=3).encode(
+                x=alt.X('Start:T'), x2='End:T', y=alt.Y('Task:N', sort=None),
+                color=alt.Color('Level:N', legend=None), tooltip=['Task', 'Progress']
+            ).properties(width=800, height=350).interactive()
+            st.altair_chart(chart, use_container_width=True)
+        
+        st.subheader("📝 Gestión de Tareas")
         df_t_ed = st.data_editor(df_t, hide_index=True, use_container_width=True, num_rows="dynamic")
         if st.button("💾 Guardar Cambios en Tareas"):
-            df_t_ed['Start'] = pd.to_datetime(df_t_ed['Start']).dt.strftime('%d/%m/%Y')
-            df_t_ed['End'] = pd.to_datetime(df_t_ed['End']).dt.strftime('%d/%m/%Y')
-            ws_tareas.clear(); ws_tareas.update([df_t_ed.columns.values.tolist()] + df_t_ed.values.tolist()); st.rerun()
+            df_save = df_t_ed.copy()
+            df_save['Start'] = df_save['Start'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notnull(x) else "")
+            df_save['End'] = df_save['End'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notnull(x) else "")
+            ws_tareas.clear(); ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist()); st.rerun()
 
 st.divider()
 
@@ -155,7 +160,7 @@ if ws_spare:
     df_s['RECIBIDO'] = df_s['RECIBIDO'].astype(str).str.upper() == 'TRUE'
     
     conf_s = {
-        "CATEGORIA": st.column_config.SelectboxColumn("Categoría", options=["PANELS", "INVERTERS", "STRUCTURE", "SECURITY", "OTROS"]),
+        "CATEGORIA": st.column_config.SelectboxColumn("Categoría", options=["PANELS", "LV/MV COMPONENTS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"]),
         "RECIBIDO": st.column_config.CheckboxColumn("OK")
     }
     df_s_ed = st.data_editor(df_s, hide_index=True, use_container_width=True, num_rows="dynamic", column_config=conf_s)
