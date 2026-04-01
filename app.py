@@ -33,43 +33,56 @@ if "df" not in st.session_state:
         })
     st.session_state.df = pd.DataFrame(rows)
 
-# ---------- 2. FUNCIÓN RECURSIVA PARA ACTUALIZAR FECHAS ----------
+# ---------- 2. FUNCIÓN RECURSIVA DE FECHAS (CORRECTA) ----------
 def update_hierarchical_dates(df):
     df = df.copy()
     if 'Parent' not in df.columns:
         df['Parent'] = None
 
-    # Función recursiva para calcular fechas de un nodo
+    # Diccionario temporal para almacenar fechas calculadas
+    calculated = {}
+
+    # Función recursiva que devuelve (start, end) de un nodo considerando todos sus hijos
     def compute_dates(task_name):
         children = df[df['Parent'] == task_name]
-        if not children.empty:
-            # Recurre a cada hijo
+        if children.empty:
+            row = df[df['Task'] == task_name].iloc[0]
+            start, end = row['Start'], row['End']
+        else:
+            starts, ends = [], []
             for child in children['Task']:
-                compute_dates(child)
-            # Actualiza la fecha del padre considerando todos los hijos recursivos
-            df.loc[df['Task'] == task_name, 'Start'] = children['Start'].min()
-            df.loc[df['Task'] == task_name, 'End'] = children['End'].max()
+                s, e = compute_dates(child)
+                starts.append(s)
+                ends.append(e)
+            start, end = min(starts), max(ends)
+        calculated[task_name] = (start, end)
+        return start, end
 
-    # Ejecutar para todas las tareas de nivel 0
+    # Ejecutar recursivamente para todos los niveles 0
     for root in df[df['Level'] == 0]['Task']:
         compute_dates(root)
 
+    # Aplicar fechas calculadas
+    for task, (start, end) in calculated.items():
+        df.loc[df['Task'] == task, 'Start'] = start
+        df.loc[df['Task'] == task, 'End'] = end
+
     return df
 
-# Ejecutar actualización de fechas
-df_final = update_hierarchical_dates(st.session_state.df)
+# ---------- 3. ACTUALIZAR FECHAS ----------
+st.session_state.df = update_hierarchical_dates(st.session_state.df)
+df_chart = st.session_state.df.copy()
 
-# ---------- 3. FILTRADO POR NIVEL ----------
+# ---------- 4. FILTRADO POR NIVEL ----------
 st.sidebar.header("Vista de Diagrama")
 profundidad = st.sidebar.slider("Nivel de detalle", 0, 2, 2)
-df_chart = df_final[df_final['Level'] <= profundidad].copy()
+df_chart = df_chart[df_chart['Level'] <= profundidad].copy()
 df_chart['Display_Task'] = df_chart.apply(lambda x: "\xa0" * 4 * int(x['Level']) + x['Task'], axis=1)
 
-# ---------- 4. GRÁFICO ALTair ----------
+# ---------- 5. GRÁFICO ALTair ----------
 h = len(df_chart) * 25
 col_config = {"y": alt.Y('id:O', axis=None, sort='ascending')}
 
-# Texto jerárquico
 base_text = alt.Chart(df_chart).encode(
     text='Display_Task:N',
     **col_config
@@ -81,7 +94,6 @@ text_layer = alt.layer(
     base_text.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray')
 )
 
-# Barras Gantt
 bars = alt.Chart(df_chart).mark_bar(cornerRadius=2).encode(
     x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')),
     x2='End:T',
@@ -91,28 +103,24 @@ bars = alt.Chart(df_chart).mark_bar(cornerRadius=2).encode(
 
 st.altair_chart(alt.hconcat(text_layer, bars, spacing=10).configure_view(stroke=None))
 
-# ---------- 5. EDITOR MAESTRO Y AÑADIR TAREAS ----------
+# ---------- 6. EDITOR MAESTRO Y AÑADIR TAREAS ----------
 st.divider()
 st.subheader("📝 Editor y Añadir Tareas")
 
-# Editor existente
 st.session_state.df = st.data_editor(
     st.session_state.df,
     hide_index=True,
     use_container_width=True
 )
 
-# Añadir nueva tarea
 with st.expander("➕ Añadir Nueva Tarea"):
     new_task_name = st.text_input("Nombre de la Tarea")
     new_task_level = st.selectbox("Nivel", [0,1,2])
-    
     possible_parents = [None] + st.session_state.df[st.session_state.df['Level'] < new_task_level]['Task'].tolist()
     new_task_parent = st.selectbox("Grupo Padre", possible_parents)
-    
     new_task_start = st.date_input("Fecha Inicio", datetime.today())
     new_task_end = st.date_input("Fecha Fin", datetime.today() + timedelta(days=2))
-    
+
     if st.button("Añadir Tarea"):
         new_id = st.session_state.df['id'].max() + 1
         st.session_state.df.loc[new_id] = {
@@ -125,4 +133,3 @@ with st.expander("➕ Añadir Nueva Tarea"):
         }
         st.session_state.df = update_hierarchical_dates(st.session_state.df)
         st.success(f"Tarea '{new_task_name}' añadida correctamente.")
-        st.experimental_rerun()
