@@ -226,11 +226,19 @@ if ws_tareas:
         # (porque no tiene subtareas y tampoco fechas manuales), lo quitamos para no romper la gráfica.
         df_t = df_t.dropna(subset=['Start', 'End']).copy()
 
-        # 2. Filtrado por nivel (Manteniendo el orden original)
-        df_p = df_t[df_t['Level'] <= prof].copy()
+      # 2. Filtrado por nivel
+df_p = df_t[df_t['Level'] <= prof].copy()
 
-        if not df_p.empty:
-            df_p['plot_id'] = range(len(df_p))
+# 🔥 CLAVE: limpiar y recalcular coherencia
+df_p = df_p.dropna(subset=['Start', 'End'])
+df_p = df_p.reset_index(drop=True)
+
+# Recalcular jerarquía en el subconjunto
+df_p['L0_idx'] = pd.Series(df_p.index).where(df_p['Level'] == 0).ffill()
+df_p['L1_idx'] = pd.Series(df_p.index).where(df_p['Level'] == 1).ffill()
+
+# ID para plotting
+df_p['plot_id'] = range(len(df_p))
             
             # Formateo visual
             df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
