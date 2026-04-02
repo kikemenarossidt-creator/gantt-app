@@ -25,7 +25,7 @@ client = obtener_cliente_gspread()
 
 # --- LÓGICA DE CÁLCULO SEGURA ---
 def calcular_avances():
-    pct_hitos, pct_tareas, pct_red = 0, 0, 0
+    pct_hitos, pct_tareas, pct_red = 0.0, 0.0, 0.0
     
     # Hitos
     ws_hitos = conectar_hoja(client, "Hitos")
@@ -33,10 +33,12 @@ def calcular_avances():
         v_h = ws_hitos.get_all_values()
         if len(v_h) > 1:
             df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
-            df_h['val'] = pd.to_numeric(df_h['PORCENTAJE'].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
-            pagados = df_h[df_h['PAGADO'].astype(str).upper() == 'TRUE']['val'].sum()
-            total = df_h['val'].sum()
-            if total > 0: pct_hitos = (pagados / total)
+            if 'PORCENTAJE' in df_h.columns and 'PAGADO' in df_h.columns:
+                df_h['val'] = pd.to_numeric(df_h['PORCENTAJE'].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
+                # CORRECCIÓN: Se añade .str antes de .upper()
+                pagados = df_h[df_h['PAGADO'].astype(str).str.upper() == 'TRUE']['val'].sum()
+                total = df_h['val'].sum()
+                if total > 0: pct_hitos = float(pagados / total)
             
     # Tareas
     ws_tareas = conectar_hoja(client, "Tareas")
@@ -45,7 +47,7 @@ def calcular_avances():
         if data_t:
             df_t = pd.DataFrame(data_t)
             if 'Progress' in df_t.columns:
-                pct_tareas = pd.to_numeric(df_t['Progress'], errors='coerce').fillna(0).mean() / 100
+                pct_tareas = float(pd.to_numeric(df_t['Progress'], errors='coerce').fillna(0).mean() / 100)
 
     # Red
     ws_red = conectar_hoja(client, "Red")
@@ -55,8 +57,9 @@ def calcular_avances():
             df_r = pd.DataFrame(v_r[1:], columns=v_r[0])
             if 'ESTADO' in df_r.columns:
                 total_ips = len(df_r)
-                online = len(df_r[df_r['ESTADO'].astype(str).upper() == 'TRUE'])
-                if total_ips > 0: pct_red = (online / total_ips)
+                # CORRECCIÓN: Se añade .str antes de .upper()
+                online = len(df_r[df_r['ESTADO'].astype(str).str.upper() == 'TRUE'])
+                if total_ips > 0: pct_red = float(online / total_ips)
                 
     return pct_hitos, pct_tareas, pct_red
 
@@ -68,13 +71,13 @@ hitos_av, tareas_av, red_av = calcular_avances()
 col_v1, col_v2, col_v3 = st.columns(3)
 with col_v1:
     st.write(f"**Payment Milestones: {hitos_av*100:.1f}%**")
-    st.progress(min(max(float(hitos_av), 0.0), 1.0))
+    st.progress(min(max(hitos_av, 0.0), 1.0))
 with col_v2:
     st.write(f"**Avance Obra: {tareas_av*100:.1f}%**")
-    st.progress(min(max(float(tareas_av), 0.0), 1.0))
+    st.progress(min(max(tareas_av, 0.0), 1.0))
 with col_v3:
     st.write(f"**Configuración Red: {red_av*100:.1f}%**")
-    st.progress(min(max(float(red_av), 0.0), 1.0))
+    st.progress(min(max(red_av, 0.0), 1.0))
 
 st.divider()
 
@@ -104,12 +107,10 @@ if ws_tareas:
     data_t = ws_tareas.get_all_records()
     if data_t:
         df_t = pd.DataFrame(data_t)
-        # Limpieza de datos crítica
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
         df_t['Level'] = pd.to_numeric(df_t['Level'], errors='coerce').fillna(0).astype(int)
 
-        # Filtro anticrash para Altair
         df_gantt = df_t.dropna(subset=['Start', 'End']).copy()
         df_gantt = df_gantt[df_gantt['End'] >= df_gantt['Start']]
 
@@ -132,7 +133,7 @@ if ws_tareas:
                     tooltip=['Task', 'Empresa a Cargo']
                 ).properties(width=750, height=h)
                 st.altair_chart(alt.hconcat(text_layer, bars))
-            except: st.error("Error al generar gráfico. Verifica las fechas.")
+            except: st.error("Error visual. Revisa las fechas en la tabla.")
         
         st.subheader("📝 Gestión de Tareas")
         df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True, key="edit_t",
@@ -170,7 +171,7 @@ ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
-    if 'ESTADO' in df_r.columns: df_r['ESTADO'] = df_r['ESTADO'].astype(str).upper() == 'TRUE'
+    if 'ESTADO' in df_r.columns: df_r['ESTADO'] = df_r['ESTADO'].astype(str).str.upper() == 'TRUE'
     df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, key="edit_r", column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
     if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
