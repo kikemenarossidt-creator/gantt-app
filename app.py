@@ -33,8 +33,10 @@ def normalizar_bool(valor):
             return "FALSE"
     except:
         pass
+
     if isinstance(valor, bool):
         return "TRUE" if valor else "FALSE"
+
     s = str(valor).strip().upper()
     return "TRUE" if s in ("TRUE", "1", "SI", "S", "YES", "Y") else "FALSE"
 
@@ -50,8 +52,13 @@ def limpiar_df_para_sheet(df, date_cols=None, bool_cols=None):
         elif col in bool_cols:
             out[col] = out[col].apply(normalizar_bool)
 
-    out = out.where(pd.notna(out), "")
-    out = out.applymap(lambda x: "" if pd.isna(x) else str(x))
+    # Convertir todo a texto simple para evitar errores con gspread
+    out = out.astype(str)
+
+    # Limpiar basura típica
+    out = out.replace("nan", "")
+    out = out.replace("NaT", "")
+    out = out.replace("None", "")
 
     return out
 
@@ -68,10 +75,14 @@ def guardar_df_en_worksheet(ws, df, date_cols=None, bool_cols=None):
     ws.clear()
     ws.resize(rows=max(len(values), 1), cols=max(len(values[0]), 1))
 
+    # Compatibilidad con distintas versiones de gspread
     try:
         ws.update("A1", values)
     except TypeError:
-        ws.update(values, "A1")
+        try:
+            ws.update(values, "A1")
+        except TypeError:
+            ws.update(range_name="A1", values=values)
 
 # --- LÓGICA DE CÁLCULO SEGURA ---
 def calcular_avances():
@@ -84,10 +95,14 @@ def calcular_avances():
         if len(v_h) > 1:
             df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
             if 'PORCENTAJE' in df_h.columns and 'PAGADO' in df_h.columns:
-                df_h['val'] = pd.to_numeric(df_h['PORCENTAJE'].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
+                df_h['val'] = pd.to_numeric(
+                    df_h['PORCENTAJE'].astype(str).str.replace('%', '', regex=False).str.replace(',', '.', regex=False),
+                    errors='coerce'
+                ).fillna(0)
                 pagados = df_h[df_h['PAGADO'].astype(str).str.upper() == 'TRUE']['val'].sum()
                 total = df_h['val'].sum()
-                if total > 0: pct_hitos = float(pagados / total)
+                if total > 0:
+                    pct_hitos = float(pagados / total)
             
     # Tareas
     ws_tareas = conectar_hoja(client, "Tareas")
@@ -107,7 +122,8 @@ def calcular_avances():
             if 'ESTADO' in df_r.columns:
                 total_ips = len(df_r)
                 online = len(df_r[df_r['ESTADO'].astype(str).str.upper() == 'TRUE'])
-                if total_ips > 0: pct_red = float(online / total_ips)
+                if total_ips > 0:
+                    pct_red = float(online / total_ips)
                 
     return pct_hitos, pct_tareas, pct_red
 
@@ -185,11 +201,16 @@ if ws_tareas:
                 st.error("Error visual. Revisa las fechas en la tabla.")
         
         st.subheader("📝 Gestión de Tareas")
-        df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True, key="edit_t",
-                                   column_config={
-                                       "Start": st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
-                                       "End": st.column_config.DateColumn("End", format="DD/MM/YYYY")
-                                   })
+        df_t_edit = st.data_editor(
+            df_t,
+            hide_index=True,
+            use_container_width=True,
+            key="edit_t",
+            column_config={
+                "Start": st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
+                "End": st.column_config.DateColumn("End", format="DD/MM/YYYY")
+            }
+        )
         
         if st.button("💾 Sincronizar Tareas"):
             try:
@@ -208,10 +229,20 @@ if ws_tareas:
         with c1:
             with st.expander("➕ Añadir Tarea"):
                 with st.form("f_t"):
-                    nt = st.text_input("Tarea"); ne = st.text_input("Empresa"); nl = st.selectbox("Nivel", [0,1,2])
+                    nt = st.text_input("Tarea")
+                    ne = st.text_input("Empresa")
+                    nl = st.selectbox("Nivel", [0, 1, 2])
                     if st.form_submit_button("Agregar"):
                         try:
-                            ws_tareas.append_row([len(df_t), nt, nl, 0, ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(days=5)).strftime('%d/%m/%Y')])
+                            ws_tareas.append_row([
+                                len(df_t),
+                                nt,
+                                nl,
+                                0,
+                                ne,
+                                datetime.now().strftime('%d/%m/%Y'),
+                                (datetime.now() + timedelta(days=5)).strftime('%d/%m/%Y')
+                            ])
                             st.rerun()
                         except Exception as e:
                             st.error(f"No se pudo añadir la tarea: {type(e).__name__} - {e}")
@@ -220,7 +251,8 @@ if ws_tareas:
                 t_b = st.selectbox("Tarea", ["---"] + df_t['Task'].tolist())
                 if st.button("Confirmar Borrado") and t_b != "---":
                     try:
-                        df_f = df_t[df_t['Task'] != t_b].copy(); df_f['id'] = range(len(df_f))
+                        df_f = df_t[df_t['Task'] != t_b].copy()
+                        df_f['id'] = range(len(df_f))
                         df_f['Start'] = pd.to_datetime(df_f['Start'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
                         df_f['End'] = pd.to_datetime(df_f['End'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
                         guardar_df_en_worksheet(ws_tareas, df_f, date_cols=['Start', 'End'])
@@ -235,20 +267,35 @@ st.header("🌐 Configuración de Red e IPs")
 ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
-    df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
-    if 'ESTADO' in df_r.columns: df_r['ESTADO'] = df_r['ESTADO'].astype(str).str.upper() == 'TRUE'
-    df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, key="edit_r", column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
+    df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR", "REFERENCIA", "MARCA", "USO", "DIRECCION IP", "ESTADO"])
+    if 'ESTADO' in df_r.columns:
+        df_r['ESTADO'] = df_r['ESTADO'].astype(str).str.upper() == 'TRUE'
+
+    df_r_ed = st.data_editor(
+        df_r,
+        hide_index=True,
+        use_container_width=True,
+        key="edit_r",
+        column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")}
+    )
+
     if st.button("💾 Guardar Red"):
         try:
+            df_r_ed = df_r_ed.copy()
             df_r_ed['ESTADO'] = df_r_ed['ESTADO'].apply(normalizar_bool)
             guardar_df_en_worksheet(ws_red, df_r_ed, bool_cols=['ESTADO'])
             st.rerun()
         except Exception as e:
             st.error(f"No se pudo guardar la red: {type(e).__name__} - {e}")
+
     with st.expander("➕ Añadir IP"):
         with st.form("f_ip"):
             f1, f2, f3, f4, f5 = st.columns(5)
-            p = f1.text_input("Prov"); r = f2.text_input("Ref"); m = f3.text_input("Marca"); u = f4.text_input("Uso"); ip = f5.text_input("IP")
+            p = f1.text_input("Prov")
+            r = f2.text_input("Ref")
+            m = f3.text_input("Marca")
+            u = f4.text_input("Uso")
+            ip = f5.text_input("IP")
             if st.form_submit_button("Añadir"):
                 try:
                     ws_red.append_row([p, r, m, u, ip, "FALSE"])
@@ -263,7 +310,7 @@ st.header("🔑 Credenciales")
 ws_creds = conectar_hoja(client, "Credenciales")
 if ws_creds:
     v_c = ws_creds.get_all_values()
-    df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if len(v_c) > 1 else pd.DataFrame(columns=["EMPRESA","PLATAFORMA","USUARIO","CONTRASEÑA"])
+    df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if len(v_c) > 1 else pd.DataFrame(columns=["EMPRESA", "PLATAFORMA", "USUARIO", "CONTRASEÑA"])
     df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True, key="edit_c")
     if st.button("💾 Guardar Credenciales"):
         try:
@@ -274,7 +321,10 @@ if ws_creds:
     with st.expander("➕ Añadir Credencial"):
         with st.form("f_c"):
             c1, c2, c3, c4 = st.columns(4)
-            ce = c1.text_input("Empresa"); cp = c2.text_input("Plat"); cu = c3.text_input("User"); cpw = c4.text_input("Pass")
+            ce = c1.text_input("Empresa")
+            cp = c2.text_input("Plat")
+            cu = c3.text_input("User")
+            cpw = c4.text_input("Pass")
             if st.form_submit_button("Añadir"):
                 try:
                     ws_creds.append_row([ce, cp, cu, cpw])
@@ -292,29 +342,56 @@ if ws_hitos:
     if len(v_h) > 1:
         df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
         df_h['PAGADO'] = df_h['PAGADO'].astype(str).str.upper() == 'TRUE'
-    else: df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
+    else:
+        df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
 
     t1, t2 = st.tabs(["🚢 Offshore", "🏗️ Onshore"])
-    cfg_h = {"PAGADO": st.column_config.CheckboxColumn("Pagado"), "PORCENTAJE": st.column_config.TextColumn("Cuota %")}
+    cfg_h = {
+        "PAGADO": st.column_config.CheckboxColumn("Pagado"),
+        "PORCENTAJE": st.column_config.TextColumn("Cuota %")
+    }
+
     with t1:
         df_off = df_h[df_h["TIPO"] == "Offshore"].copy()
-        ed_off = st.data_editor(df_off, hide_index=True, use_container_width=True, key="ed_off", column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
+        ed_off = st.data_editor(
+            df_off,
+            hide_index=True,
+            use_container_width=True,
+            key="ed_off",
+            column_order=("HITO", "PORCENTAJE", "PAGADO"),
+            column_config=cfg_h
+        )
+
     with t2:
         df_on = df_h[df_h["TIPO"] == "Onshore"].copy()
-        ed_on = st.data_editor(df_on, hide_index=True, use_container_width=True, key="ed_on", column_order=("HITO", "PORCENTAJE", "PAGADO"), column_config=cfg_h)
+        ed_on = st.data_editor(
+            df_on,
+            hide_index=True,
+            use_container_width=True,
+            key="ed_on",
+            column_order=("HITO", "PORCENTAJE", "PAGADO"),
+            column_config=cfg_h
+        )
 
     if st.button("💾 Guardar Hitos"):
         try:
-            ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"; df_final = pd.concat([ed_off, ed_on], ignore_index=True)
+            ed_off = ed_off.copy()
+            ed_on = ed_on.copy()
+            ed_off["TIPO"] = "Offshore"
+            ed_on["TIPO"] = "Onshore"
+            df_final = pd.concat([ed_off, ed_on], ignore_index=True)
             df_final['PAGADO'] = df_final['PAGADO'].apply(normalizar_bool)
             guardar_df_en_worksheet(ws_hitos, df_final, bool_cols=['PAGADO'])
             st.rerun()
         except Exception as e:
             st.error(f"No se pudieron guardar los hitos: {type(e).__name__} - {e}")
+
     with st.expander("➕ Añadir Hito"):
         with st.form("f_h"):
             c1, c2, c3 = st.columns(3)
-            ht = c1.selectbox("Tipo", ["Offshore", "Onshore"]); hn = c2.text_input("Hito"); hp = c3.text_input("%")
+            ht = c1.selectbox("Tipo", ["Offshore", "Onshore"])
+            hn = c2.text_input("Hito")
+            hp = c3.text_input("%")
             if st.form_submit_button("Añadir"):
                 try:
                     ws_hitos.append_row([ht, hn, hp, "FALSE"])
@@ -332,13 +409,17 @@ if ws_spare:
     df_s = pd.DataFrame(v_s[1:], columns=v_s[0]) if len(v_s) > 1 else pd.DataFrame(columns=["CATEGORIA", "DESCRIPCION", "UNIDADES"])
     
     search = st.text_input("🔍 Buscar repuesto...", "")
-    df_show = df_s[df_s['DESCRIPCION'].astype(str).str.contains(search, case=False, na=False)] if search else df_s
+    if search:
+        df_show = df_s[df_s['DESCRIPCION'].astype(str).str.contains(search, case=False, na=False)]
+    else:
+        df_show = df_s
     
     df_s_ed = st.data_editor(df_show, hide_index=True, use_container_width=True, key="ed_spare")
     
     if st.button("💾 Guardar Inventario"):
         try:
             if search:
+                # Mantiene el índice original, así df.update funciona bien
                 df_s.update(df_s_ed)
                 df_to_save = df_s
             else:
@@ -352,7 +433,8 @@ if ws_spare:
         with st.form("f_s"):
             c1, c2, c3 = st.columns([2, 3, 1])
             cat = c1.selectbox("Cat", ["PANELS", "LV/MV COMPONENTS", "INVERTERS", "STRUCTURE", "SECURITY", "MONITORING", "OTROS"])
-            ds = c2.text_input("Descripción"); un = c3.number_input("Und", min_value=1, value=1)
+            ds = c2.text_input("Descripción")
+            un = c3.number_input("Und", min_value=1, value=1)
             if st.form_submit_button("Añadir"):
                 try:
                     ws_spare.append_row([cat, ds, str(un)])
