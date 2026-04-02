@@ -195,75 +195,71 @@ if ws_tareas:
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
 
-        # Guardamos una copia ORIGINAL para gestión/edición
+        # Copia ORIGINAL para editor y guardado
         df_t_original = df_t.copy()
 
-        # --- CÁLCULO AUTOMÁTICO DE FECHAS (Jerarquía Nivel 2 -> 1 -> 0) ---
-        # OJO: esto se hace UNA sola vez sobre todo el dataframe,
-        # no depende del nivel de visualización
+        # --- CÁLCULO AUTOMÁTICO DE FECHAS (una sola vez, independiente de la visualización) ---
         df_calc = df_t.copy()
 
-        df_calc['L0_idx'] = pd.Series(df_calc.index, index=df_calc.index).where(df_calc['Level'] == 0).ffill()
-        df_calc['L1_idx'] = pd.Series(df_calc.index, index=df_calc.index).where(df_calc['Level'] == 1).ffill()
+        # Posición fija de cada fila según el orden original
+        df_calc['row_plot'] = range(len(df_calc))
 
-        # 1. Calcular fechas del Nivel 1 en base a sus hijos Nivel 2
-        l2_tasks = df_calc[df_calc['Level'] == 2].dropna(subset=['Start', 'End'])
+        # Identificadores jerárquicos
+        df_calc['L0_idx'] = df_calc.index.where(df_calc['Level'] == 0).ffill()
+        df_calc['L1_idx'] = df_calc.index.where(df_calc['Level'] == 1).ffill()
+
+        # Nivel 1 en base a hijos de nivel 2
+        l2_tasks = df_calc[(df_calc['Level'] == 2) & df_calc['Start'].notna() & df_calc['End'].notna()].copy()
         if not l2_tasks.empty:
-            l1_start = l2_tasks.groupby('L1_idx')['Start'].min()
-            l1_end = l2_tasks.groupby('L1_idx')['End'].max()
-            for idx in l1_start.index:
+            l1_dates = l2_tasks.groupby('L1_idx').agg(
+                Start=('Start', 'min'),
+                End=('End', 'max')
+            )
+            for idx, vals in l1_dates.iterrows():
                 if pd.notna(idx) and idx in df_calc.index:
-                    df_calc.loc[idx, 'Start'] = l1_start.loc[idx]
-                    df_calc.loc[idx, 'End'] = l1_end.loc[idx]
+                    df_calc.loc[idx, 'Start'] = vals['Start']
+                    df_calc.loc[idx, 'End'] = vals['End']
 
-        # 2. Calcular fechas del Nivel 0 en base a todas las tareas por debajo de él
-        children = df_calc[df_calc['Level'] > 0].dropna(subset=['Start', 'End'])
+        # Nivel 0 en base a todos los hijos por debajo
+        children = df_calc[(df_calc['Level'] > 0) & df_calc['Start'].notna() & df_calc['End'].notna()].copy()
         if not children.empty:
-            l0_start = children.groupby('L0_idx')['Start'].min()
-            l0_end = children.groupby('L0_idx')['End'].max()
-            for idx in l0_start.index:
+            l0_dates = children.groupby('L0_idx').agg(
+                Start=('Start', 'min'),
+                End=('End', 'max')
+            )
+            for idx, vals in l0_dates.iterrows():
                 if pd.notna(idx) and idx in df_calc.index:
-                    df_calc.loc[idx, 'Start'] = l0_start.loc[idx]
-                    df_calc.loc[idx, 'End'] = l0_end.loc[idx]
+                    df_calc.loc[idx, 'Start'] = vals['Start']
+                    df_calc.loc[idx, 'End'] = vals['End']
 
-        # --- DATAFRAME PARA GRAFICAR ---
-        # El nivel SOLO filtra visualización, no recalcula fechas
-        df_plot_all = df_calc.copy()
-
-        # Filtrar por nivel sin tocar fechas
-        df_p = df_plot_all[df_plot_all['Level'] <= prof].copy()
-
-        # Mantener orden original estable
-        df_p = df_p.reset_index(drop=False).rename(columns={"index": "row_order"})
-
-        # Solo la gráfica necesita fechas válidas
-        df_p = df_p.dropna(subset=['Start', 'End']).copy()
+        # --- FILTRADO SOLO VISUAL ---
+        df_p = df_calc[df_calc['Level'] <= prof].copy()
+        df_p = df_p[df_p['Start'].notna() & df_p['End'].notna()].copy()
 
         if not df_p.empty:
-            # Texto con sangría según nivel
+            # Etiqueta visual con sangría
             df_p['Display'] = df_p.apply(
-                lambda x: ("   " * int(x['Level'])) + str(x['Task']),
+                lambda x: ("      " * int(x['Level'])) + str(x['Task']),
                 axis=1
             )
 
-            # Orden visual estable de arriba a abajo
-            orden_y = df_p.sort_values('row_order', ascending=False)['Display'].tolist()
+            # Orden vertical estable: arriba la primera fila del dataframe
+            y_order = list(reversed(df_p['row_plot'].tolist()))
 
             h_dinamica = max(len(df_p) * 30, 150)
 
-            # Columna izquierda: nombres
-            text_base = alt.Chart(df_p).encode(
-                y=alt.Y('Display:N', sort=orden_y, axis=None)
+            base = alt.Chart(df_p).encode(
+                y=alt.Y('row_plot:O', axis=None, sort=y_order)
             )
 
             text_layer = alt.layer(
-                text_base.transform_filter(alt.datum.Level == 0).mark_text(
+                base.transform_filter(alt.datum.Level == 0).mark_text(
                     align='left', fontWeight='bold', fontSize=13
                 ),
-                text_base.transform_filter(alt.datum.Level == 1).mark_text(
+                base.transform_filter(alt.datum.Level == 1).mark_text(
                     align='left', fontSize=12
                 ),
-                text_base.transform_filter(alt.datum.Level == 2).mark_text(
+                base.transform_filter(alt.datum.Level == 2).mark_text(
                     align='left', fontStyle='italic', color='gray'
                 )
             ).encode(
@@ -273,9 +269,7 @@ if ws_tareas:
                 height=h_dinamica
             )
 
-            # Columna derecha: barras gantt
-            bars = alt.Chart(df_p).mark_bar(cornerRadius=3).encode(
-                y=alt.Y('Display:N', sort=orden_y, axis=None),
+            bars = base.mark_bar(cornerRadius=3).encode(
                 x=alt.X('Start:T', axis=alt.Axis(format='%d/%m', title='Cronograma')),
                 x2='End:T',
                 color=alt.Color(
@@ -294,31 +288,34 @@ if ws_tareas:
                 height=h_dinamica
             )
 
-            st.altair_chart(
-                alt.hconcat(text_layer, bars).resolve_scale(y='shared'),
-                use_container_width=False
-            )
+            chart = alt.hconcat(text_layer, bars).resolve_scale(y='shared')
+            st.altair_chart(chart, use_container_width=False)
         else:
-            st.info("No hay tareas con fechas válidas para el nivel seleccionado.")
+            st.info("No hay tareas con fechas válidas para mostrar en este nivel.")
 
         # --- GESTIÓN DE TAREAS (DATA EDITOR) ---
         st.subheader("📝 Gestión de Tareas")
 
-        # Para edición usamos el original, no el filtrado por la gráfica
         df_t_show = df_t_original.copy()
 
+        # Formatear fechas para editor, sin alterar orden
         if 'Start' in df_t_show.columns:
-            df_t_show['Start'] = pd.to_datetime(df_t_show['Start'], errors='coerce').dt.strftime('%d/%m/%Y')
-            df_t_show['Start'] = df_t_show['Start'].fillna('')
-
+            df_t_show['Start'] = df_t_show['Start'].apply(
+                lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else ""
+            )
         if 'End' in df_t_show.columns:
-            df_t_show['End'] = pd.to_datetime(df_t_show['End'], errors='coerce').dt.strftime('%d/%m/%Y')
-            df_t_show['End'] = df_t_show['End'].fillna('')
+            df_t_show['End'] = df_t_show['End'].apply(
+                lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else ""
+            )
 
-        cols_to_drop = [c for c in ['L0_idx', 'L1_idx', 'row_order', 'Display'] if c in df_t_show.columns]
+        cols_to_drop = [c for c in ['L0_idx', 'L1_idx', 'row_plot', 'Display'] if c in df_t_show.columns]
         df_t_show = df_t_show.drop(columns=cols_to_drop)
 
-        df_t_edit = st.data_editor(df_t_show, hide_index=True, use_container_width=True)
+        df_t_edit = st.data_editor(
+            df_t_show,
+            hide_index=True,
+            use_container_width=True
+        )
 
         if st.button("💾 Sincronizar Tareas"):
             ws_tareas.clear()
@@ -333,26 +330,51 @@ if ws_tareas:
                     nt = st.text_input("Tarea")
                     ne = st.text_input("Empresa")
                     nl = st.selectbox("Nivel", [0, 1, 2])
+
                     if st.form_submit_button("Agregar"):
-                        ws_tareas.append_row([len(df_t_original), nt, nl, 0, ne, "", ""])
+                        nueva_fila = [""] * len(df_t_show.columns)
+
+                        if 'id' in df_t_show.columns:
+                            nueva_fila[df_t_show.columns.get_loc('id')] = len(df_t_show)
+
+                        if 'Task' in df_t_show.columns:
+                            nueva_fila[df_t_show.columns.get_loc('Task')] = nt
+
+                        if 'Level' in df_t_show.columns:
+                            nueva_fila[df_t_show.columns.get_loc('Level')] = nl
+
+                        if 'Progress' in df_t_show.columns:
+                            nueva_fila[df_t_show.columns.get_loc('Progress')] = 0
+
+                        if 'Empresa a Cargo' in df_t_show.columns:
+                            nueva_fila[df_t_show.columns.get_loc('Empresa a Cargo')] = ne
+
+                        if 'Start' in df_t_show.columns:
+                            nueva_fila[df_t_show.columns.get_loc('Start')] = ""
+
+                        if 'End' in df_t_show.columns:
+                            nueva_fila[df_t_show.columns.get_loc('End')] = ""
+
+                        ws_tareas.append_row(nueva_fila)
                         st.rerun()
 
         with c2:
             with st.expander("🗑️ Eliminar Tarea"):
                 t_b = st.selectbox("Tarea", ["---"] + df_t_original['Task'].astype(str).tolist())
+
                 if st.button("Confirmar Borrado"):
                     df_f = df_t_original[df_t_original['Task'] != t_b].copy()
-                    df_f['id'] = range(len(df_f))
 
                     if 'Start' in df_f.columns:
-                        df_f['Start'] = pd.to_datetime(df_f['Start'], errors='coerce').dt.strftime('%d/%m/%Y')
-                        df_f['Start'] = df_f['Start'].fillna('')
-
+                        df_f['Start'] = df_f['Start'].apply(
+                            lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else ""
+                        )
                     if 'End' in df_f.columns:
-                        df_f['End'] = pd.to_datetime(df_f['End'], errors='coerce').dt.strftime('%d/%m/%Y')
-                        df_f['End'] = df_f['End'].fillna('')
+                        df_f['End'] = df_f['End'].apply(
+                            lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else ""
+                        )
 
-                    cols_to_drop_f = [c for c in ['L0_idx', 'L1_idx', 'row_order', 'Display'] if c in df_f.columns]
+                    cols_to_drop_f = [c for c in ['L0_idx', 'L1_idx', 'row_plot', 'Display'] if c in df_f.columns]
                     df_f = df_f.drop(columns=cols_to_drop_f)
 
                     ws_tareas.clear()
