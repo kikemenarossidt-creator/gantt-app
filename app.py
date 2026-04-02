@@ -222,6 +222,7 @@ if ws_tareas:
             st.warning("No hay tareas para mostrar en este nivel.")
             
         # ... (aquí sigue el resto de tu código de Gestión de Tareas)
+
 # --- 4. RED E IPs ---
 
 st.header("🌐 Configuración de Red e IPs")
