@@ -23,34 +23,31 @@ def conectar_hoja(client, nombre_pestaña):
 
 client = obtener_cliente_gspread()
 
-# --- LÓGICA DE CÁLCULO PARA EL VISOR ---
+# --- LÓGICA DE CÁLCULO SEGURA ---
 def calcular_avances():
-    pct_hitos = 0
-    pct_tareas = 0
-    pct_red = 0
+    pct_hitos, pct_tareas, pct_red = 0, 0, 0
     
-    # Cálculo de Hitos
+    # Hitos
     ws_hitos = conectar_hoja(client, "Hitos")
     if ws_hitos:
         v_h = ws_hitos.get_all_values()
         if len(v_h) > 1:
             df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
-            df_h['val'] = df_h['PORCENTAJE'].str.replace('%', '').str.replace(',', '.').astype(float)
-            pagados = df_h[df_h['PAGADO'].str.upper() == 'TRUE']['val'].sum()
+            df_h['val'] = pd.to_numeric(df_h['PORCENTAJE'].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
+            pagados = df_h[df_h['PAGADO'].astype(str).upper() == 'TRUE']['val'].sum()
             total = df_h['val'].sum()
             if total > 0: pct_hitos = (pagados / total)
             
-    # Cálculo de Tareas
+    # Tareas
     ws_tareas = conectar_hoja(client, "Tareas")
     if ws_tareas:
         data_t = ws_tareas.get_all_records()
         if data_t:
             df_t = pd.DataFrame(data_t)
             if 'Progress' in df_t.columns:
-                df_t['Progress'] = pd.to_numeric(df_t['Progress'], errors='coerce').fillna(0)
-                pct_tareas = df_t['Progress'].mean() / 100
+                pct_tareas = pd.to_numeric(df_t['Progress'], errors='coerce').fillna(0).mean() / 100
 
-    # Cálculo de Red e IPs
+    # Red
     ws_red = conectar_hoja(client, "Red")
     if ws_red:
         v_r = ws_red.get_all_values()
@@ -58,12 +55,12 @@ def calcular_avances():
             df_r = pd.DataFrame(v_r[1:], columns=v_r[0])
             if 'ESTADO' in df_r.columns:
                 total_ips = len(df_r)
-                online = len(df_r[df_r['ESTADO'].str.upper() == 'TRUE'])
+                online = len(df_r[df_r['ESTADO'].astype(str).upper() == 'TRUE'])
                 if total_ips > 0: pct_red = (online / total_ips)
                 
     return pct_hitos, pct_tareas, pct_red
 
-# --- 1. CABECERA Y VISOR DE AVANCE ---
+# --- 1. CABECERA ---
 st.title("☀️ Control Integral de Proyecto")
 
 hitos_av, tareas_av, red_av = calcular_avances()
@@ -71,13 +68,13 @@ hitos_av, tareas_av, red_av = calcular_avances()
 col_v1, col_v2, col_v3 = st.columns(3)
 with col_v1:
     st.write(f"**Payment Milestones: {hitos_av*100:.1f}%**")
-    st.progress(min(hitos_av, 1.0))
+    st.progress(min(max(float(hitos_av), 0.0), 1.0))
 with col_v2:
     st.write(f"**Avance Obra: {tareas_av*100:.1f}%**")
-    st.progress(min(tareas_av, 1.0))
+    st.progress(min(max(float(tareas_av), 0.0), 1.0))
 with col_v3:
     st.write(f"**Configuración Red: {red_av*100:.1f}%**")
-    st.progress(min(red_av, 1.0))
+    st.progress(min(max(float(red_av), 0.0), 1.0))
 
 st.divider()
 
@@ -100,111 +97,72 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
         st.text_input("Nombre del alimentador", "DUAO 15 KV")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
-# --- 3. CRONOGRAMA (GANTT) ---
+# --- 3. CRONOGRAMA (GANTT SEGURO) ---
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
-
 if ws_tareas:
     data_t = ws_tareas.get_all_records()
     if data_t:
         df_t = pd.DataFrame(data_t)
-        
-        # 1. Limpieza ultra-segura de datos
+        # Limpieza de datos crítica
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
         df_t['Level'] = pd.to_numeric(df_t['Level'], errors='coerce').fillna(0).astype(int)
-        df_t['Task'] = df_t['Task'].astype(str)
 
-        # 2. Filtro: Solo graficamos tareas que tengan fechas coherentes
-        # Esto evita que la página muera si Inicio > Fin
+        # Filtro anticrash para Altair
         df_gantt = df_t.dropna(subset=['Start', 'End']).copy()
         df_gantt = df_gantt[df_gantt['End'] >= df_gantt['Start']]
 
         if not df_gantt.empty:
             prof = st.sidebar.slider("Detalle Gantt (Nivel)", 0, 2, 2)
             df_p = df_gantt[df_gantt['Level'] <= prof].copy()
-            
-            # Generar el nombre con sangría de forma segura
-            df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * x['Level'] + x['Task'], axis=1)
+            df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * x['Level'] + str(x['Task']), axis=1)
             
             try:
                 h = max(len(df_p) * 25, 200)
                 base = alt.Chart(df_p).encode(y=alt.Y('id:O', axis=None, sort='ascending'))
-                
                 text_layer = alt.layer(
                     base.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold', fontSize=13),
                     base.transform_filter(alt.datum.Level == 1).mark_text(align='left', fontSize=12),
                     base.transform_filter(alt.datum.Level == 2).mark_text(align='left', fontStyle='italic', color='gray')
                 ).encode(text='Display:N').properties(width=350, height=h)
-
                 bars = base.mark_bar(cornerRadius=3).encode(
-                    x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')), 
-                    x2='End:T',
+                    x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')), x2='End:T',
                     color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
                     tooltip=['Task', 'Empresa a Cargo']
                 ).properties(width=750, height=h)
-                
                 st.altair_chart(alt.hconcat(text_layer, bars))
-            except Exception as e:
-                st.error(f"Error visualizando el gráfico: {e}")
-        else:
-            st.info("💡 Introduce fechas válidas (Inicio menor a Fin) para ver el gráfico.")
-
-        st.subheader("📝 Gestión de Tareas")
+            except: st.error("Error al generar gráfico. Verifica las fechas.")
         
-        # Editor de datos con configuración de columnas estricta
-        df_t_edit = st.data_editor(
-            df_t, 
-            hide_index=True, 
-            use_container_width=True,
-            column_config={
-                "Start": st.column_config.DateColumn("Inicio", format="DD/MM/YYYY"),
-                "End": st.column_config.DateColumn("Fin", format="DD/MM/YYYY"),
-                "Level": st.column_config.NumberColumn("Nivel", min_value=0, max_value=2, step=1),
-                "Progress": st.column_config.NumberColumn("Progreso %", min_value=0, max_value=100)
-            }
-        )
-
+        st.subheader("📝 Gestión de Tareas")
+        df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True, key="edit_t",
+                                   column_config={
+                                       "Start": st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
+                                       "End": st.column_config.DateColumn("End", format="DD/MM/YYYY")
+                                   })
+        
         if st.button("💾 Sincronizar Tareas"):
-            try:
-                df_save = df_t_edit.copy()
-                # Convertimos a string con formato europeo antes de subir a Google Sheets
-                df_save['Start'] = pd.to_datetime(df_save['Start']).dt.strftime('%d/%m/%Y')
-                df_save['End'] = pd.to_datetime(df_save['End']).dt.strftime('%d/%m/%Y')
-                
-                ws_tareas.clear()
-                ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist())
-                st.success("¡Datos guardados!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error al guardar: {e}")
+            df_save = df_t_edit.copy()
+            df_save['Start'] = pd.to_datetime(df_save['Start']).dt.strftime('%d/%m/%Y')
+            df_save['End'] = pd.to_datetime(df_save['End']).dt.strftime('%d/%m/%Y')
+            ws_tareas.clear(); ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist()); st.rerun()
 
-        # --- Botones de añadir/eliminar (protegidos) ---
         c1, c2 = st.columns(2)
         with c1:
             with st.expander("➕ Añadir Tarea"):
                 with st.form("f_t"):
-                    nt = st.text_input("Tarea")
-                    ne = st.text_input("Empresa")
-                    nl = st.selectbox("Nivel", [0,1,2])
+                    nt = st.text_input("Tarea"); ne = st.text_input("Empresa"); nl = st.selectbox("Nivel", [0,1,2])
                     if st.form_submit_button("Agregar"):
-                        if nt:
-                            nueva_fila = [len(df_t), nt, nl, "", ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(5)).strftime('%d/%m/%Y'), 0]
-                            ws_tareas.append_row(nueva_fila)
-                            st.rerun()
-                        else:
-                            st.warning("Escribe el nombre de la tarea")
+                        ws_tareas.append_row([len(df_t), nt, nl, 0, ne, datetime.now().strftime('%d/%m/%Y'), (datetime.now()+timedelta(5)).strftime('%d/%m/%Y')]); st.rerun()
         with c2:
             with st.expander("🗑️ Eliminar Tarea"):
-                t_b = st.selectbox("Selecciona Tarea", ["---"] + df_t['Task'].tolist())
+                t_b = st.selectbox("Tarea", ["---"] + df_t['Task'].tolist())
                 if st.button("Confirmar Borrado") and t_b != "---":
-                    df_f = df_t[df_t['Task'] != t_b].copy()
-                    df_f['id'] = range(len(df_f))
-                    df_f['Start'] = pd.to_datetime(df_f['Start']).dt.strftime('%d/%m/%Y')
-                    df_f['End'] = pd.to_datetime(df_f['End']).dt.strftime('%d/%m/%Y')
-                    ws_tareas.clear()
-                    ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist())
-                    st.rerun()
+                    df_f = df_t[df_t['Task'] != t_b].copy(); df_f['id'] = range(len(df_f))
+                    ws_tareas.clear(); df_f['Start'] = pd.to_datetime(df_f['Start']).dt.strftime('%d/%m/%Y'); df_f['End'] = pd.to_datetime(df_f['End']).dt.strftime('%d/%m/%Y')
+                    ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist()); st.rerun()
+
+st.divider()
 
 # --- 4. RED E IPs ---
 st.header("🌐 Configuración de Red e IPs")
@@ -212,8 +170,8 @@ ws_red = conectar_hoja(client, "Red")
 if ws_red:
     v_r = ws_red.get_all_values()
     df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
-    if 'ESTADO' in df_r.columns: df_r['ESTADO'] = df_r['ESTADO'].apply(lambda x: str(x).upper() == 'TRUE')
-    df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
+    if 'ESTADO' in df_r.columns: df_r['ESTADO'] = df_r['ESTADO'].astype(str).upper() == 'TRUE'
+    df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, key="edit_r", column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
     if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
         ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
@@ -231,7 +189,7 @@ ws_creds = conectar_hoja(client, "Credenciales")
 if ws_creds:
     v_c = ws_creds.get_all_values()
     df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if len(v_c) > 1 else pd.DataFrame(columns=["EMPRESA","PLATAFORMA","USUARIO","CONTRASEÑA"])
-    df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True)
+    df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True, key="edit_c")
     if st.button("💾 Guardar Credenciales"):
         ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.values.tolist()); st.rerun()
     with st.expander("➕ Añadir Credencial"):
