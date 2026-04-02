@@ -29,7 +29,6 @@ def obtener_cliente_gspread():
         st.error(f"Error de autenticación con Google: {e}")
         return None
 
-
 def conectar_hoja(nombre_pestaña: str):
     """Devuelve el worksheet o None si falla."""
     c = obtener_cliente_gspread()
@@ -44,7 +43,6 @@ def conectar_hoja(nombre_pestaña: str):
         st.warning(f"No se pudo conectar a '{nombre_pestaña}': {e}")
         return None
 
-
 # ─────────────────────────────────────────────
 # UTILIDADES DE LIMPIEZA Y GUARDADO
 # ─────────────────────────────────────────────
@@ -53,17 +51,16 @@ def normalizar_bool(valor) -> str:
     try:
         if pd.isna(valor):
             return "FALSE"
-    except TypeError:
+    except Exception:
         pass
     if isinstance(valor, bool):
         return "TRUE" if valor else "FALSE"
     return "TRUE" if str(valor).strip().upper() in ("TRUE", "1", "SI", "S", "YES", "Y") else "FALSE"
 
-
 def limpiar_df_para_sheet(df: pd.DataFrame, date_cols=None, bool_cols=None) -> list:
     """
     Devuelve lista de listas lista para escribir en gspread.
-    Convierte fechas, bools y limpia nulos.
+    Convierte fechas, bools y limpia nulos de forma segura.
     """
     date_cols = set(date_cols or [])
     bool_cols = set(bool_cols or [])
@@ -71,41 +68,41 @@ def limpiar_df_para_sheet(df: pd.DataFrame, date_cols=None, bool_cols=None) -> l
 
     for col in out.columns:
         if col in date_cols:
-            out[col] = (
-                pd.to_datetime(out[col], errors="coerce", dayfirst=True)
-                .dt.strftime("%d/%m/%Y")
-            )
+            out[col] = pd.to_datetime(out[col], errors="coerce", dayfirst=True).dt.strftime("%d/%m/%Y").fillna("")
         elif col in bool_cols:
             out[col] = out[col].apply(normalizar_bool)
 
-    # Todo a string limpio
-    out = out.astype(str).replace({"nan": "", "NaT": "", "None": "", "NaN": ""})
+    # Convertir todo a string y asegurar que no queden textos de nulos
+    out = out.fillna("")
+    out = out.astype(str).replace({"nan": "", "NaT": "", "None": "", "NaN": "", "<NA>": ""})
 
     header = out.columns.tolist()
     rows = out.values.tolist()
     return [header] + rows
 
-
 def guardar_en_sheet(ws, df: pd.DataFrame, date_cols=None, bool_cols=None):
-    """Escribe el DataFrame completo en el worksheet (clear + update)."""
+    """Escribe el DataFrame completo en el worksheet asegurando compatibilidad con gspread."""
     if ws is None:
         raise ValueError("Worksheet no disponible.")
+    
     values = limpiar_df_para_sheet(df, date_cols=date_cols, bool_cols=bool_cols)
     n_rows = max(len(values), 1)
     n_cols = max(len(values[0]), 1) if values else 1
+    
     ws.clear()
     ws.resize(rows=n_rows, cols=n_cols)
-    # gspread >= 5.x: update(range, values)  |  < 5.x: update(values, range)
+    
+    # Manejo de compatibilidad para diferentes versiones de gspread
     try:
-        ws.update("A1", values)
+        ws.update(range_name="A1", values=values)
     except TypeError:
-        ws.update(values, "A1")
-
+        try:
+            ws.update("A1", values)
+        except Exception:
+            ws.update(values, "A1")
 
 def leer_hoja(nombre_pestaña: str, columnas_default: list) -> tuple:
-    """
-    Devuelve (ws, df). Si la hoja no existe o está vacía devuelve (None, df_vacío).
-    """
+    """Devuelve (ws, df). Si la hoja no existe o está vacía devuelve (None, df_vacío)."""
     ws = conectar_hoja(nombre_pestaña)
     if ws is None:
         return None, pd.DataFrame(columns=columnas_default)
@@ -121,9 +118,8 @@ def leer_hoja(nombre_pestaña: str, columnas_default: list) -> tuple:
     df = pd.DataFrame(values[1:], columns=values[0])
     return ws, df
 
-
 # ─────────────────────────────────────────────
-# CÁLCULO DE AVANCES (con caché corta)
+# CÁLCULO DE AVANCES
 # ─────────────────────────────────────────────
 @st.cache_data(ttl=30, show_spinner=False)
 def calcular_avances():
@@ -144,9 +140,7 @@ def calcular_avances():
     # Tareas
     _, df_t = leer_hoja("Tareas", ["id", "Task", "Level", "Progress", "Empresa a Cargo", "Start", "End"])
     if not df_t.empty and "Progress" in df_t.columns:
-        pct_tareas = float(
-            pd.to_numeric(df_t["Progress"], errors="coerce").fillna(0).mean() / 100
-        )
+        pct_tareas = float(pd.to_numeric(df_t["Progress"], errors="coerce").fillna(0).mean() / 100)
 
     # Red
     _, df_r = leer_hoja("Red", ["PROVEEDOR", "REFERENCIA", "MARCA", "USO", "DIRECCION IP", "ESTADO"])
@@ -158,11 +152,9 @@ def calcular_avances():
 
     return pct_hitos, pct_tareas, pct_red
 
-
 # ═══════════════════════════════════════════════
 # INICIO DE LA APP
 # ═══════════════════════════════════════════════
-
 st.title("☀️ Control Integral de Proyecto")
 
 hitos_av, tareas_av, red_av = calcular_avances()
@@ -221,9 +213,7 @@ if not df_t.empty:
     if not df_gantt.empty:
         prof = st.sidebar.slider("Detalle Gantt (Nivel)", 0, 2, 2)
         df_p = df_gantt[df_gantt["Level"] <= prof].copy()
-        df_p["Display"] = df_p.apply(
-            lambda x: "\xa0" * 6 * int(x["Level"]) + str(x["Task"]), axis=1
-        )
+        df_p["Display"] = df_p.apply(lambda x: "\xa0" * 6 * int(x["Level"]) + str(x["Task"]), axis=1)
         df_p = df_p.reset_index(drop=True)
         df_p["id"] = df_p.index
 
@@ -231,26 +221,16 @@ if not df_t.empty:
             h = max(len(df_p) * 25, 200)
             base = alt.Chart(df_p).encode(y=alt.Y("id:O", axis=None, sort="ascending"))
             text_layer = alt.layer(
-                base.transform_filter(alt.datum.Level == 0).mark_text(
-                    align="left", fontWeight="bold", fontSize=13
-                ),
-                base.transform_filter(alt.datum.Level == 1).mark_text(
-                    align="left", fontSize=12
-                ),
-                base.transform_filter(alt.datum.Level == 2).mark_text(
-                    align="left", fontStyle="italic", color="gray"
-                ),
+                base.transform_filter(alt.datum.Level == 0).mark_text(align="left", fontWeight="bold", fontSize=13),
+                base.transform_filter(alt.datum.Level == 1).mark_text(align="left", fontSize=12),
+                base.transform_filter(alt.datum.Level == 2).mark_text(align="left", fontStyle="italic", color="gray"),
             ).encode(text="Display:N").properties(width=350, height=h)
 
             bars = base.mark_bar(cornerRadius=3).encode(
                 x=alt.X("Start:T", axis=alt.Axis(format="%d/%m")),
                 x2="End:T",
-                color=alt.Color(
-                    "Level:N",
-                    scale=alt.Scale(range=["#1a5276", "#3498db", "#aed6f1"]),
-                    legend=None,
-                ),
-                tooltip=["Task", "Empresa a Cargo"],
+                color=alt.Color("Level:N", scale=alt.Scale(range=["#1a5276", "#3498db", "#aed6f1"]), legend=None),
+                tooltip=["Task", "Empresa a Cargo", "Progress"],
             ).properties(width=750, height=h)
 
             st.altair_chart(alt.hconcat(text_layer, bars))
@@ -263,11 +243,14 @@ if not df_t.empty:
         df_t,
         hide_index=True,
         use_container_width=True,
+        num_rows="dynamic",
         key="edit_t",
         column_config={
+            "id": st.column_config.Column(disabled=True),
             "Start": st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
             "End": st.column_config.DateColumn("End", format="DD/MM/YYYY"),
             "Progress": st.column_config.NumberColumn("Progress", min_value=0, max_value=100),
+            "Level": st.column_config.NumberColumn("Level", min_value=0, max_value=2),
         },
     )
 
@@ -276,6 +259,9 @@ if not df_t.empty:
             st.error("No hay conexión con la hoja de Tareas.")
         else:
             try:
+                # Recalcular IDs en caso de filas borradas/añadidas
+                df_t_edit = df_t_edit.reset_index(drop=True)
+                df_t_edit["id"] = df_t_edit.index
                 guardar_en_sheet(ws_tareas, df_t_edit, date_cols=["Start", "End"])
                 st.cache_data.clear()
                 st.success("✅ Tareas guardadas correctamente.")
@@ -285,7 +271,7 @@ if not df_t.empty:
 
     c1, c2 = st.columns(2)
     with c1:
-        with st.expander("➕ Añadir Tarea"):
+        with st.expander("➕ Añadir Tarea Rápida"):
             with st.form("f_t", clear_on_submit=True):
                 nt = st.text_input("Tarea")
                 ne = st.text_input("Empresa a Cargo")
@@ -346,6 +332,7 @@ if "ESTADO" in df_r.columns:
 df_r_ed = st.data_editor(
     df_r,
     hide_index=True,
+    num_rows="dynamic",
     use_container_width=True,
     key="edit_r",
     column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")},
@@ -357,7 +344,6 @@ if st.button("💾 Guardar Red"):
     else:
         try:
             df_save = df_r_ed.copy()
-            df_save["ESTADO"] = df_save["ESTADO"].apply(normalizar_bool)
             guardar_en_sheet(ws_red, df_save, bool_cols=["ESTADO"])
             st.cache_data.clear()
             st.success("✅ Red guardada.")
@@ -398,6 +384,7 @@ ws_creds, df_c = leer_hoja("Credenciales", COLS_CREDS)
 df_c_ed = st.data_editor(
     df_c,
     hide_index=True,
+    num_rows="dynamic",
     use_container_width=True,
     key="edit_c",
     column_config={
@@ -459,6 +446,7 @@ with t1:
     ed_off = st.data_editor(
         df_off,
         hide_index=True,
+        num_rows="dynamic",
         use_container_width=True,
         key="ed_off",
         column_order=["HITO", "PORCENTAJE", "PAGADO"],
@@ -470,6 +458,7 @@ with t2:
     ed_on = st.data_editor(
         df_on,
         hide_index=True,
+        num_rows="dynamic",
         use_container_width=True,
         key="ed_on",
         column_order=["HITO", "PORCENTAJE", "PAGADO"],
@@ -485,8 +474,10 @@ if st.button("💾 Guardar Hitos"):
             df_on_save = ed_on.copy()
             df_off_save["TIPO"] = "Offshore"
             df_on_save["TIPO"] = "Onshore"
-            df_final = pd.concat([df_off_save, df_on_save], ignore_index=True)
-            df_final["PAGADO"] = df_final["PAGADO"].apply(normalizar_bool)
+            
+            # Concatenar y asegurar el orden de las columnas originales
+            df_final = pd.concat([df_off_save, df_on_save], ignore_index=True)[COLS_HITOS]
+            
             guardar_en_sheet(ws_hitos, df_final, bool_cols=["PAGADO"])
             st.cache_data.clear()
             st.success("✅ Hitos guardados.")
@@ -533,6 +524,7 @@ else:
 df_s_ed = st.data_editor(
     df_show,
     hide_index=True,
+    num_rows="dynamic",
     use_container_width=True,
     key="ed_spare",
     column_config={
@@ -546,8 +538,8 @@ if st.button("💾 Guardar Inventario"):
     else:
         try:
             if search and not df_s.empty:
-                # Actualiza sólo las filas visibles en el df original
-                df_s.update(df_s_ed)
+                # Actualizar los valores en el dataframe original usando su índice para evitar sobrescribir mal
+                df_s.loc[df_s_ed.index, df_s_ed.columns] = df_s_ed
                 df_to_save = df_s
             else:
                 df_to_save = df_s_ed
