@@ -23,7 +23,7 @@ def conectar_hoja(client, nombre_pestaña):
 
 client = obtener_cliente_gspread()
 
-# --- 🆕 FUNCIONES NUEVAS (FIX) ---
+# --- 🔧 FIX FUNCIONES ---
 def parse_fecha(x):
     try:
         if pd.isna(x) or x == "":
@@ -131,20 +131,19 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
         st.text_input("Nombre del alimentador", "DUAO 15 KV")
         st.text_input("Proveedor Seguridad", "Prosegur")
 
-# --- 3. CRONOGRAMA (SOLO FIX APLICADO) ---
+# --- 3. CRONOGRAMA (FIX APLICADO) ---
 st.header("📅 Cronograma de Obra")
 ws_tareas = conectar_hoja(client, "Tareas")
+
 if ws_tareas:
     data_t = ws_tareas.get_all_records()
     if data_t:
         df_t = pd.DataFrame(data_t)
 
-        # 🔥 FIX AQUÍ
         df_t['Start'] = df_t['Start'].apply(parse_fecha)
         df_t['End'] = df_t['End'].apply(parse_fecha)
         df_t['Level'] = pd.to_numeric(df_t['Level'], errors='coerce').fillna(0).astype(int)
 
-        # 🔥 RECÁLCULO JERÁRQUICO
         df_t = recalcular_fechas_jerarquia(df_t)
 
         df_gantt = df_t.dropna(subset=['Start', 'End']).copy()
@@ -154,7 +153,7 @@ if ws_tareas:
             prof = st.sidebar.slider("Detalle Gantt (Nivel)", 0, 2, 2)
             df_p = df_gantt[df_gantt['Level'] <= prof].copy()
             df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * x['Level'] + str(x['Task']), axis=1)
-            
+
             h = max(len(df_p) * 25, 200)
             base = alt.Chart(df_p).encode(y=alt.Y('id:O', axis=None, sort='ascending'))
 
@@ -173,19 +172,18 @@ if ws_tareas:
 
             st.altair_chart(alt.hconcat(text_layer, bars))
 
-        # --- EDITOR (igual que el tuyo) ---
+        # --- EDITOR ---
         st.subheader("📝 Gestión de Tareas")
         df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True, key="edit_t",
                                    column_config={
                                        "Start": st.column_config.DateColumn("Start"),
                                        "End": st.column_config.DateColumn("End")
                                    })
-        
+
         if st.button("💾 Sincronizar Tareas"):
             try:
                 df_save = df_t_edit.copy()
 
-                # 🔥 FIX GUARDADO
                 df_save['Start'] = pd.to_datetime(df_save['Start'], errors='coerce')
                 df_save['End'] = pd.to_datetime(df_save['End'], errors='coerce')
 
@@ -193,15 +191,17 @@ if ws_tareas:
                 df_save['End'] = df_save['End'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else "")
 
                 df_save = df_save.fillna("")
-                
+
                 ws_tareas.clear()
                 ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist())
+
                 st.success("¡Datos guardados con éxito!")
                 st.rerun()
+
             except Exception as e:
                 st.error(f"Error fatal al intentar guardar en Google Sheets: {e}")
 
-        # --- AÑADIR / BORRAR (SIN CAMBIOS) ---
+        # --- AÑADIR / BORRAR ---
         c1, c2 = st.columns(2)
         with c1:
             with st.expander("➕ Añadir Tarea"):
@@ -217,5 +217,67 @@ if ws_tareas:
                     ws_tareas.clear(); df_f['Start'] = pd.to_datetime(df_f['Start']).dt.strftime('%d/%m/%Y'); df_f['End'] = pd.to_datetime(df_f['End']).dt.strftime('%d/%m/%Y')
                     ws_tareas.update([df_f.columns.values.tolist()] + df_f.fillna("").values.tolist()); st.rerun()
 
-# --- RESTO DEL CÓDIGO (RED, CREDENCIALES, HITOS, REPUESTOS) ---
-# 🔥 EXACTAMENTE IGUAL QUE EL TUYO (NO TOCADO)
+# --- 4. RED ---
+st.header("🌐 Configuración de Red e IPs")
+ws_red = conectar_hoja(client, "Red")
+if ws_red:
+    v_r = ws_red.get_all_values()
+    df_r = pd.DataFrame(v_r[1:], columns=v_r[0]) if len(v_r) > 1 else pd.DataFrame(columns=["PROVEEDOR","REFERENCIA","MARCA","USO","DIRECCION IP","ESTADO"])
+    if 'ESTADO' in df_r.columns: df_r['ESTADO'] = df_r['ESTADO'].astype(str).str.upper() == 'TRUE'
+    df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, key="edit_r", column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
+    if st.button("💾 Guardar Red"):
+        df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
+        ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.fillna("").values.tolist()); st.rerun()
+    with st.expander("➕ Añadir IP"):
+        with st.form("f_ip"):
+            f1, f2, f3, f4, f5 = st.columns(5)
+            p = f1.text_input("Prov"); r = f2.text_input("Ref"); m = f3.text_input("Marca"); u = f4.text_input("Uso"); ip = f5.text_input("IP")
+            if st.form_submit_button("Añadir"): ws_red.append_row([p, r, m, u, ip, "FALSE"]); st.rerun()
+
+st.divider()
+
+# --- 5. CREDENCIALES ---
+st.header("🔑 Credenciales")
+ws_creds = conectar_hoja(client, "Credenciales")
+if ws_creds:
+    v_c = ws_creds.get_all_values()
+    df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if len(v_c) > 1 else pd.DataFrame(columns=["EMPRESA","PLATAFORMA","USUARIO","CONTRASEÑA"])
+    df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True, key="edit_c")
+    if st.button("💾 Guardar Credenciales"):
+        ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.fillna("").values.tolist()); st.rerun()
+    with st.expander("➕ Añadir Credencial"):
+        with st.form("f_c"):
+            c1, c2, c3, c4 = st.columns(4)
+            ce = c1.text_input("Empresa"); cp = c2.text_input("Plat"); cu = c3.text_input("User"); cpw = c4.text_input("Pass")
+            if st.form_submit_button("Añadir"): ws_creds.append_row([ce, cp, cu, cpw]); st.rerun()
+
+st.divider()
+
+# --- 6. HITOS ---
+st.header("💰 Hitos de Pago (Payment Milestones)")
+ws_hitos = conectar_hoja(client, "Hitos")
+if ws_hitos:
+    v_h = ws_hitos.get_all_values()
+    if len(v_h) > 1:
+        df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
+        df_h['PAGADO'] = df_h['PAGADO'].astype(str).str.upper() == 'TRUE'
+    else: df_h = pd.DataFrame(columns=["TIPO", "HITO", "PORCENTAJE", "PAGADO"])
+
+    df_h_ed = st.data_editor(df_h, hide_index=True, use_container_width=True)
+    if st.button("💾 Guardar Hitos"):
+        df_h_ed['PAGADO'] = df_h_ed['PAGADO'].astype(str).upper()
+        ws_hitos.clear(); ws_hitos.update([df_h_ed.columns.values.tolist()] + df_h_ed.fillna("").values.tolist()); st.rerun()
+
+st.divider()
+
+# --- 7. REPUESTOS ---
+st.header("📦 Spare Parts Inventory (Repuestos)")
+ws_spare = conectar_hoja(client, "Repuestos")
+if ws_spare:
+    v_s = ws_spare.get_all_values()
+    df_s = pd.DataFrame(v_s[1:], columns=v_s[0]) if len(v_s) > 1 else pd.DataFrame(columns=["CATEGORIA", "DESCRIPCION", "UNIDADES"])
+
+    df_s_ed = st.data_editor(df_s, hide_index=True, use_container_width=True)
+
+    if st.button("💾 Guardar Inventario"):
+        ws_spare.clear(); ws_spare.update([df_s_ed.columns.values.tolist()] + df_s_ed.fillna("").values.tolist()); st.rerun()
