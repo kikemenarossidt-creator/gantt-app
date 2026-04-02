@@ -194,87 +194,104 @@ with st.expander("📋 FICHA TÉCNICA DEL PROYECTO", expanded=False):
         st.text_input("Proveedor Seguridad", "Prosegur")
 
 # ─────────────────────────────────────────────
-# CRONOGRAMA / GANTT
+# CRONOGRAMA / GANTT (VERSIÓN DINÁMICA)
 # ─────────────────────────────────────────────
 st.header("📅 Cronograma de Obra")
 
 COLS_TAREAS = ["id", "Task", "Level", "Progress", "Empresa a Cargo", "Start", "End"]
 ws_tareas, df_t = leer_hoja("Tareas", COLS_TAREAS)
 
-# --- SOLUCIÓN AL KEYERROR: Limpieza de columnas ---
 if not df_t.empty:
-    # 1. Eliminar espacios invisibles en los nombres de las columnas
+    # 1. Limpieza de nombres de columnas y datos
     df_t.columns = [c.strip() for c in df_t.columns]
     
-    # 2. Verificar si las columnas críticas existen tras la limpieza
-    columnas_actuales = df_t.columns.tolist()
-    criticas = ["Start", "End", "Progress", "Level"]
-    faltantes = [c for c in criticas if c not in columnas_actuales]
+    # Aseguramos que las columnas existan, si no, las creamos vacías
+    for c in COLS_TAREAS:
+        if c not in df_t.columns:
+            df_t[c] = ""
 
-    if faltantes:
-        st.error(f"❌ Error en Google Sheets: No se encuentran las columnas: {', '.join(faltantes)}")
-        st.info(f"Columnas detectadas actualmente: {columnas_actuales}")
-        st.stop() # Detiene la ejecución para que no salga el error rojo feo
-
-    # 3. Conversiones seguras
+    # 2. Conversión de datos para la Gráfica
     df_t["Start"] = pd.to_datetime(df_t["Start"], dayfirst=True, errors="coerce")
     df_t["End"] = pd.to_datetime(df_t["End"], dayfirst=True, errors="coerce")
     df_t["Level"] = pd.to_numeric(df_t["Level"], errors="coerce").fillna(0).astype(int)
     df_t["Progress"] = pd.to_numeric(df_t["Progress"], errors="coerce").fillna(0)
 
-    # Filtrar filas sin fechas válidas para el Gantt
+    # Filtrar solo filas con fechas válidas para el Gantt
     df_gantt = df_t.dropna(subset=["Start", "End"]).copy()
     df_gantt = df_gantt[df_gantt["End"] >= df_gantt["Start"]]
 
     if not df_gantt.empty:
-        prof = st.sidebar.slider("Detalle Gantt (Nivel)", 0, 2, 2)
+        # Sidebar para filtrar por nivel
+        prof = st.sidebar.slider("Detalle Gantt (Nivel)", 0, 2, 2, key="slider_gantt")
         df_p = df_gantt[df_gantt["Level"] <= prof].copy()
-        df_p["Display"] = df_p.apply(lambda x: "\xa0" * 6 * int(x["Level"]) + str(x.get("Task", "Sin Nombre")), axis=1)
+        
+        # Formatear nombre con sangría según nivel
+        df_p["Display"] = df_p.apply(lambda x: " " * 6 * int(x["Level"]) + str(x["Task"]), axis=1)
         df_p = df_p.reset_index(drop=True)
-        df_p["id"] = df_p.index
+        df_p["id_plot"] = df_p.index
 
         try:
-            h = max(len(df_p) * 25, 200)
-            base = alt.Chart(df_p).encode(y=alt.Y("id:O", axis=None, sort="ascending"))
+            h = max(len(df_p) * 30, 150)
+            base = alt.Chart(df_p).encode(y=alt.Y("id_plot:O", axis=None, sort="ascending"))
+            
             text_layer = alt.layer(
                 base.transform_filter(alt.datum.Level == 0).mark_text(align="left", fontWeight="bold", fontSize=13),
                 base.transform_filter(alt.datum.Level == 1).mark_text(align="left", fontSize=12),
                 base.transform_filter(alt.datum.Level == 2).mark_text(align="left", fontStyle="italic", color="gray"),
-            ).encode(text="Display:N").properties(width=350, height=h)
+            ).encode(text="Display:N").properties(width=300, height=h)
 
             bars = base.mark_bar(cornerRadius=3).encode(
-                x=alt.X("Start:T", axis=alt.Axis(format="%d/%m")),
+                x=alt.X("Start:T", title="Fecha", axis=alt.Axis(format="%d/%m")),
                 x2="End:T",
                 color=alt.Color("Level:N", scale=alt.Scale(range=["#1a5276", "#3498db", "#aed6f1"]), legend=None),
-                tooltip=["Task", "Empresa a Cargo", "Progress"],
-            ).properties(width=750, height=h)
+                tooltip=[
+                    alt.Tooltip("Task", title="Tarea"),
+                    alt.Tooltip("Start:T", title="Inicio", format="%d/%m/%Y"),
+                    alt.Tooltip("End:T", title="Fin", format="%d/%m/%Y"),
+                    alt.Tooltip("Progress", title="Progreso %")
+                ],
+            ).properties(width=800, height=h)
 
-            st.altair_chart(alt.hconcat(text_layer, bars))
+            st.altair_chart(alt.hconcat(text_layer, bars), use_container_width=True)
         except Exception as e:
-            st.error(f"Error al renderizar Gantt: {e}")
+            st.warning(f"Aviso: Agregue fechas válidas para visualizar el gráfico.")
+    else:
+        st.info("💡 Introduce tareas con fechas de Inicio y Fin válidas para ver la gráfica.")
 
-    # ── Editor de tareas ──
-    st.subheader("📝 Gestión de Tareas")
+    # ── TABLA DINÁMICA (AÑADIR/ELIMINAR) ──
+    st.subheader("📝 Editor de Cronograma")
+    st.caption("Para eliminar: selecciona la fila y pulsa 'Supr' o usa el menú lateral de la celda. Para añadir: escribe en la última fila vacía.")
+    
     df_t_edit = st.data_editor(
         df_t,
         hide_index=True,
         use_container_width=True,
-        num_rows="dynamic",
-        key="edit_t",
+        num_rows="dynamic",  # ESTO ACTIVA AÑADIR/ELIMINAR
+        key="editor_tareas_pro",
         column_config={
-            "Start": st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
-            "End": st.column_config.DateColumn("End", format="DD/MM/YYYY"),
-            "Progress": st.column_config.NumberColumn("Progress", min_value=0, max_value=100),
+            "id": st.column_config.Column(disabled=True),
+            "Task": st.column_config.TextColumn("Tarea", required=True),
+            "Level": st.column_config.SelectboxColumn("Nivel", options=[0, 1, 2], default=0),
+            "Progress": st.column_config.NumberColumn("Progreso %", min_value=0, max_value=100, format="%d%%"),
+            "Start": st.column_config.DateColumn("Inicio", format="DD/MM/YYYY"),
+            "End": st.column_config.DateColumn("Fin", format="DD/MM/YYYY"),
         },
     )
 
-    if st.button("💾 Sincronizar Tareas"):
+    if st.button("💾 Guardar y Sincronizar Cambios"):
         if ws_tareas:
-            df_t_edit["id"] = range(len(df_t_edit))
-            guardar_en_sheet(ws_tareas, df_t_edit, date_cols=["Start", "End"])
-            st.cache_data.clear()
-            st.success("✅ Guardado correctamente")
-            st.rerun()
+            try:
+                # Limpiar el dataframe editado antes de subir
+                df_final = df_t_edit.copy()
+                df_final = df_final.reset_index(drop=True)
+                df_final["id"] = range(len(df_final))
+                
+                guardar_en_sheet(ws_tareas, df_final, date_cols=["Start", "End"])
+                st.cache_data.clear()
+                st.success("✅ Cambios guardados en Google Sheets.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al guardar: {e}")
 # ─────────────────────────────────────────────
 # RED E IPs
 # ─────────────────────────────────────────────
