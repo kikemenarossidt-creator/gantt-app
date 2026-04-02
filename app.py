@@ -35,7 +35,6 @@ def calcular_avances():
             df_h = pd.DataFrame(v_h[1:], columns=v_h[0])
             if 'PORCENTAJE' in df_h.columns and 'PAGADO' in df_h.columns:
                 df_h['val'] = pd.to_numeric(df_h['PORCENTAJE'].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
-                # CORRECCIÓN: Se añade .str antes de .upper()
                 pagados = df_h[df_h['PAGADO'].astype(str).str.upper() == 'TRUE']['val'].sum()
                 total = df_h['val'].sum()
                 if total > 0: pct_hitos = float(pagados / total)
@@ -57,7 +56,6 @@ def calcular_avances():
             df_r = pd.DataFrame(v_r[1:], columns=v_r[0])
             if 'ESTADO' in df_r.columns:
                 total_ips = len(df_r)
-                # CORRECCIÓN: Se añade .str antes de .upper()
                 online = len(df_r[df_r['ESTADO'].astype(str).str.upper() == 'TRUE'])
                 if total_ips > 0: pct_red = float(online / total_ips)
                 
@@ -143,10 +141,20 @@ if ws_tareas:
                                    })
         
         if st.button("💾 Sincronizar Tareas"):
-            df_save = df_t_edit.copy()
-            df_save['Start'] = pd.to_datetime(df_save['Start']).dt.strftime('%d/%m/%Y')
-            df_save['End'] = pd.to_datetime(df_save['End']).dt.strftime('%d/%m/%Y')
-            ws_tareas.clear(); ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist()); st.rerun()
+            try:
+                df_save = df_t_edit.copy()
+                df_save['Start'] = pd.to_datetime(df_save['Start'], errors='coerce').dt.strftime('%d/%m/%Y').fillna("")
+                df_save['End'] = pd.to_datetime(df_save['End'], errors='coerce').dt.strftime('%d/%m/%Y').fillna("")
+                
+                # Escudo contra celdas vacías para que gspread no crashee
+                df_save = df_save.fillna("")
+                
+                ws_tareas.clear()
+                ws_tareas.update([df_save.columns.values.tolist()] + df_save.values.tolist())
+                st.success("¡Datos guardados con éxito!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error fatal al intentar guardar en Google Sheets: {e}")
 
         c1, c2 = st.columns(2)
         with c1:
@@ -161,7 +169,7 @@ if ws_tareas:
                 if st.button("Confirmar Borrado") and t_b != "---":
                     df_f = df_t[df_t['Task'] != t_b].copy(); df_f['id'] = range(len(df_f))
                     ws_tareas.clear(); df_f['Start'] = pd.to_datetime(df_f['Start']).dt.strftime('%d/%m/%Y'); df_f['End'] = pd.to_datetime(df_f['End']).dt.strftime('%d/%m/%Y')
-                    ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist()); st.rerun()
+                    ws_tareas.update([df_f.columns.values.tolist()] + df_f.fillna("").values.tolist()); st.rerun()
 
 st.divider()
 
@@ -175,7 +183,7 @@ if ws_red:
     df_r_ed = st.data_editor(df_r, hide_index=True, use_container_width=True, key="edit_r", column_config={"ESTADO": st.column_config.CheckboxColumn("Comunicando")})
     if st.button("💾 Guardar Red"):
         df_r_ed['ESTADO'] = df_r_ed['ESTADO'].astype(str).upper()
-        ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.values.tolist()); st.rerun()
+        ws_red.clear(); ws_red.update([df_r_ed.columns.values.tolist()] + df_r_ed.fillna("").values.tolist()); st.rerun()
     with st.expander("➕ Añadir IP"):
         with st.form("f_ip"):
             f1, f2, f3, f4, f5 = st.columns(5)
@@ -192,7 +200,7 @@ if ws_creds:
     df_c = pd.DataFrame(v_c[1:], columns=v_c[0]) if len(v_c) > 1 else pd.DataFrame(columns=["EMPRESA","PLATAFORMA","USUARIO","CONTRASEÑA"])
     df_c_ed = st.data_editor(df_c, hide_index=True, use_container_width=True, key="edit_c")
     if st.button("💾 Guardar Credenciales"):
-        ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.values.tolist()); st.rerun()
+        ws_creds.clear(); ws_creds.update([df_c_ed.columns.values.tolist()] + df_c_ed.fillna("").values.tolist()); st.rerun()
     with st.expander("➕ Añadir Credencial"):
         with st.form("f_c"):
             c1, c2, c3, c4 = st.columns(4)
@@ -223,7 +231,7 @@ if ws_hitos:
     if st.button("💾 Guardar Hitos"):
         ed_off["TIPO"] = "Offshore"; ed_on["TIPO"] = "Onshore"; df_final = pd.concat([ed_off, ed_on])
         df_final['PAGADO'] = df_final['PAGADO'].astype(str).str.upper()
-        ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.values.tolist()); st.rerun()
+        ws_hitos.clear(); ws_hitos.update([df_final.columns.values.tolist()] + df_final.fillna("").values.tolist()); st.rerun()
     with st.expander("➕ Añadir Hito"):
         with st.form("f_h"):
             c1, c2, c3 = st.columns(3)
@@ -247,7 +255,7 @@ if ws_spare:
     if st.button("💾 Guardar Inventario"):
         if search: df_s.update(df_s_ed); df_to_save = df_s
         else: df_to_save = df_s_ed
-        ws_spare.clear(); ws_spare.update([df_to_save.columns.values.tolist()] + df_to_save.values.tolist()); st.rerun()
+        ws_spare.clear(); ws_spare.update([df_to_save.columns.values.tolist()] + df_to_save.fillna("").values.tolist()); st.rerun()
 
     with st.expander("➕ Registrar Nuevo Repuesto"):
         with st.form("f_s"):
