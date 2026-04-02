@@ -201,19 +201,35 @@ st.header("📅 Cronograma de Obra")
 COLS_TAREAS = ["id", "Task", "Level", "Progress", "Empresa a Cargo", "Start", "End"]
 ws_tareas, df_t = leer_hoja("Tareas", COLS_TAREAS)
 
+# --- SOLUCIÓN AL KEYERROR: Limpieza de columnas ---
 if not df_t.empty:
+    # 1. Eliminar espacios invisibles en los nombres de las columnas
+    df_t.columns = [c.strip() for c in df_t.columns]
+    
+    # 2. Verificar si las columnas críticas existen tras la limpieza
+    columnas_actuales = df_t.columns.tolist()
+    criticas = ["Start", "End", "Progress", "Level"]
+    faltantes = [c for c in criticas if c not in columnas_actuales]
+
+    if faltantes:
+        st.error(f"❌ Error en Google Sheets: No se encuentran las columnas: {', '.join(faltantes)}")
+        st.info(f"Columnas detectadas actualmente: {columnas_actuales}")
+        st.stop() # Detiene la ejecución para que no salga el error rojo feo
+
+    # 3. Conversiones seguras
     df_t["Start"] = pd.to_datetime(df_t["Start"], dayfirst=True, errors="coerce")
     df_t["End"] = pd.to_datetime(df_t["End"], dayfirst=True, errors="coerce")
     df_t["Level"] = pd.to_numeric(df_t["Level"], errors="coerce").fillna(0).astype(int)
     df_t["Progress"] = pd.to_numeric(df_t["Progress"], errors="coerce").fillna(0)
 
-    df_gantt = df_t.dropna(subset=["Start", "End"])
-    df_gantt = df_gantt[df_gantt["End"] >= df_gantt["Start"]].copy()
+    # Filtrar filas sin fechas válidas para el Gantt
+    df_gantt = df_t.dropna(subset=["Start", "End"]).copy()
+    df_gantt = df_gantt[df_gantt["End"] >= df_gantt["Start"]]
 
     if not df_gantt.empty:
         prof = st.sidebar.slider("Detalle Gantt (Nivel)", 0, 2, 2)
         df_p = df_gantt[df_gantt["Level"] <= prof].copy()
-        df_p["Display"] = df_p.apply(lambda x: "\xa0" * 6 * int(x["Level"]) + str(x["Task"]), axis=1)
+        df_p["Display"] = df_p.apply(lambda x: "\xa0" * 6 * int(x["Level"]) + str(x.get("Task", "Sin Nombre")), axis=1)
         df_p = df_p.reset_index(drop=True)
         df_p["id"] = df_p.index
 
@@ -246,78 +262,19 @@ if not df_t.empty:
         num_rows="dynamic",
         key="edit_t",
         column_config={
-            "id": st.column_config.Column(disabled=True),
             "Start": st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
             "End": st.column_config.DateColumn("End", format="DD/MM/YYYY"),
             "Progress": st.column_config.NumberColumn("Progress", min_value=0, max_value=100),
-            "Level": st.column_config.NumberColumn("Level", min_value=0, max_value=2),
         },
     )
 
     if st.button("💾 Sincronizar Tareas"):
-        if ws_tareas is None:
-            st.error("No hay conexión con la hoja de Tareas.")
-        else:
-            try:
-                # Recalcular IDs en caso de filas borradas/añadidas
-                df_t_edit = df_t_edit.reset_index(drop=True)
-                df_t_edit["id"] = df_t_edit.index
-                guardar_en_sheet(ws_tareas, df_t_edit, date_cols=["Start", "End"])
-                st.cache_data.clear()
-                st.success("✅ Tareas guardadas correctamente.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error al guardar Tareas: {type(e).__name__} — {e}")
-
-    c1, c2 = st.columns(2)
-    with c1:
-        with st.expander("➕ Añadir Tarea Rápida"):
-            with st.form("f_t", clear_on_submit=True):
-                nt = st.text_input("Tarea")
-                ne = st.text_input("Empresa a Cargo")
-                nl = st.selectbox("Nivel", [0, 1, 2])
-                np_ = st.number_input("Progreso (%)", 0, 100, 0)
-                ns = st.date_input("Inicio", datetime.today())
-                nend = st.date_input("Fin", datetime.today() + timedelta(days=5))
-                if st.form_submit_button("Agregar") and nt:
-                    if ws_tareas is None:
-                        st.error("Sin conexión.")
-                    else:
-                        try:
-                            nuevo_id = len(df_t)
-                            ws_tareas.append_row([
-                                str(nuevo_id), nt, str(nl), str(np_), ne,
-                                ns.strftime("%d/%m/%Y"), nend.strftime("%d/%m/%Y"),
-                            ])
-                            st.cache_data.clear()
-                            st.success("Tarea añadida.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"No se pudo añadir: {type(e).__name__} — {e}")
-
-    with c2:
-        with st.expander("🗑️ Eliminar Tarea"):
-            opciones_tareas = df_t["Task"].dropna().tolist()
-            t_b = st.selectbox("Tarea a eliminar", ["---"] + opciones_tareas)
-            if st.button("Confirmar Borrado") and t_b != "---":
-                if ws_tareas is None:
-                    st.error("Sin conexión.")
-                else:
-                    try:
-                        df_f = df_t[df_t["Task"] != t_b].copy().reset_index(drop=True)
-                        df_f["id"] = df_f.index
-                        guardar_en_sheet(ws_tareas, df_f, date_cols=["Start", "End"])
-                        st.cache_data.clear()
-                        st.success(f"Tarea '{t_b}' eliminada.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"No se pudo borrar: {type(e).__name__} — {e}")
-
-elif ws_tareas is not None:
-    st.info("La hoja 'Tareas' está vacía.")
-
-st.divider()
-
+        if ws_tareas:
+            df_t_edit["id"] = range(len(df_t_edit))
+            guardar_en_sheet(ws_tareas, df_t_edit, date_cols=["Start", "End"])
+            st.cache_data.clear()
+            st.success("✅ Guardado correctamente")
+            st.rerun()
 # ─────────────────────────────────────────────
 # RED E IPs
 # ─────────────────────────────────────────────
