@@ -186,36 +186,39 @@ if ws_tareas:
             options=[0, 1, 2],
             format_func=lambda x: ["Básico (Hitos)", "Intermedio", "Detallado (Todo)"][x],
             horizontal=True,
-            key="selector_gantt"
+            key="selector_gantt_final"
         )
 
         st.header("📅 Cronograma de Obra")
 
-        # --- CORRECCIÓN DE TIPOS DE DATOS ---
-        # Forzamos que 'Level' sea un número entero (evita fallos de comparación)
+        # --- LIMPIEZA DE DATOS (Para que no se caiga) ---
+        # Aseguramos que Level sea número y rellenamos vacíos con 0
         df_t['Level'] = pd.to_numeric(df_t['Level'], errors='coerce').fillna(0).astype(int)
         
-        # Convertimos fechas asegurando que no haya errores
+        # Convertimos fechas y ELIMINAMOS filas que no tengan fechas válidas (esto evita que Altair falle)
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
+        df_t = df_t.dropna(subset=['Start', 'End'])
 
-        # 2. Filtrado por nivel
+        # 2. Filtrado por nivel (Manteniendo el orden original del Sheet)
         df_p = df_t[df_t['Level'] <= prof].copy()
 
-        # Solo dibujamos si hay datos tras el filtro
         if not df_p.empty:
-            # IMPORTANTE: Creamos un ID temporal para que las barras salgan juntas
-            df_p = df_p.sort_values(by=['Start']) 
+            # IMPORTANTE: NO usamos sort_values por fecha para no desordenar el Excel.
+            # Creamos un ID secuencial basado estrictamente en el orden que venía del Sheet.
             df_p['plot_id'] = range(len(df_p))
             
-            # Formateamos el texto con indentación según nivel
+            # Formateo visual del nombre de la tarea
             df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
             
-            # Altura dinámica según cantidad de tareas visibles
+            # Altura proporcional al número de tareas
             h_dinamica = max(len(df_p) * 30, 150)
 
             # --- GRÁFICO ALTAIR ---
-            base = alt.Chart(df_p).encode(y=alt.Y('plot_id:O', axis=None, sort='ascending'))
+            # Usamos 'plot_id' para el eje Y, pero le decimos que use el nombre de la tarea como etiqueta
+            base = alt.Chart(df_p).encode(
+                y=alt.Y('plot_id:O', axis=None, sort='ascending')
+            )
 
             text_layer = alt.layer(
                 base.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold', fontSize=13),
@@ -224,17 +227,27 @@ if ws_tareas:
             ).encode(text='Display:N').properties(width=350, height=h_dinamica)
 
             bars = base.mark_bar(cornerRadius=3).encode(
-                x=alt.X('Start:T', axis=alt.Axis(format='%d/%m'), title='Fecha'), 
+                x=alt.X('Start:T', axis=alt.Axis(format='%d/%m', title='Cronograma')), 
                 x2='End:T',
                 color=alt.Color('Level:N', 
                                 scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), 
                                 legend=None),
-                tooltip=['Task', 'Empresa a Cargo', 'Start', 'End']
+                tooltip=[
+                    alt.Tooltip('Task:N', title='Tarea'),
+                    alt.Tooltip('Start:T', title='Inicio', format='%d/%m/%Y'),
+                    alt.Tooltip('End:T', title='Fin', format='%d/%m/%Y'),
+                    alt.Tooltip('Empresa a Cargo:N', title='Responsable')
+                ]
             ).properties(width=750, height=h_dinamica)
 
             st.altair_chart(alt.hconcat(text_layer, bars), use_container_width=False)
         else:
-            st.warning(f"No se encontraron tareas con nivel menor o igual a {prof} en la base de datos.")
+            st.info("Selecciona un nivel superior o verifica que las tareas tengan fechas en el Excel.")
+
+        # --- GESTIÓN DE TAREAS (DATA EDITOR) ---
+        st.subheader("📝 Gestión de Tareas")
+        df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True)
+        # ... resto de tus botones de sincronizar y añadir ...
 
 # --- 4. RED E IPs ---
 
