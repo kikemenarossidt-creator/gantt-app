@@ -180,21 +180,17 @@ if ws_tareas:
     if data_t:
         df_t = pd.DataFrame(data_t)
         
-        # 1. Selector ENCIMA del título
+        # 1. Selector de nivel ENCIMA del título
+        # Usamos un radio horizontal para que sea fácil de clickear
         prof = st.radio(
             "🔍 Nivel de detalle del Cronograma:",
             options=[0, 1, 2],
             format_func=lambda x: ["Básico (Hitos)", "Intermedio", "Detallado (Todo)"][x],
-            horizontal=True,
-            key="selector_nivel"
+            horizontal=True
         )
 
         st.header("📅 Cronograma de Obra")
 
-        # --- CORRECCIÓN CRÍTICA ---
-        # Forzamos que Level sea numérico para que el filtro funcione
-        df_t['Level'] = pd.to_numeric(df_t['Level'], errors='coerce').fillna(0).astype(int)
-        
         # Procesamiento de fechas
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
@@ -202,16 +198,12 @@ if ws_tareas:
         # Filtrado por nivel
         df_p = df_t[df_t['Level'] <= prof].copy()
         
+        # Si no hay datos tras el filtro, evitamos que Altair explote
         if not df_p.empty:
-            # Re-indexar IDs para que Altair no deje huecos visuales
-            df_p = df_p.sort_values(by=['Level', 'Start']) 
-            df_p['id_plot'] = range(len(df_p))
-            
             df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
             
-            h = max(len(df_p) * 30, 150)
-            # Usamos id_plot para asegurar que se vean todas las filas juntas
-            base = alt.Chart(df_p).encode(y=alt.Y('id_plot:O', axis=None, sort='ascending'))
+            h = max(len(df_p) * 25, 200)
+            base = alt.Chart(df_p).encode(y=alt.Y('id:O', axis=None, sort='ascending'))
             
             text_layer = alt.layer(
                 base.transform_filter(alt.datum.Level == 0).mark_text(align='left', fontWeight='bold', fontSize=13),
@@ -220,18 +212,16 @@ if ws_tareas:
             ).encode(text='Display:N').properties(width=350, height=h)
             
             bars = base.mark_bar(cornerRadius=3).encode(
-                x=alt.X('Start:T', axis=alt.Axis(format='%d/%m'), title='Fecha'), 
-                x2='End:T',
-                color=alt.Color('Level:N', 
-                                scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), 
-                                legend=None),
-                tooltip=['Task', 'Empresa a Cargo', 'Start', 'End']
+                x=alt.X('Start:T', axis=alt.Axis(format='%d/%m')), x2='End:T',
+                color=alt.Color('Level:N', scale=alt.Scale(range=['#1a5276', '#3498db', '#aed6f1']), legend=None),
+                tooltip=['Task', 'Empresa a Cargo']
             ).properties(width=750, height=h)
             
-            st.altair_chart(alt.hconcat(text_layer, bars), use_container_width=True)
+            st.altair_chart(alt.hconcat(text_layer, bars))
         else:
-            st.warning(f"No hay tareas marcadas con Nivel {prof} o inferior en el Excel.")
-
+            st.warning("No hay tareas para mostrar en este nivel.")
+            
+        # ... (aquí sigue el resto de tu código de Gestión de Tareas)
 # --- 4. RED E IPs ---
 
 st.header("🌐 Configuración de Red e IPs")
