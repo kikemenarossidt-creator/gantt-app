@@ -191,31 +191,53 @@ if ws_tareas:
 
         st.header("📅 Cronograma de Obra")
 
-        # --- LIMPIEZA DE DATOS (Para que no se caiga) ---
-        # Aseguramos que Level sea número y rellenamos vacíos con 0
+        # --- LIMPIEZA INICIAL ---
         df_t['Level'] = pd.to_numeric(df_t['Level'], errors='coerce').fillna(0).astype(int)
-        
-        # Convertimos fechas y ELIMINAMOS filas que no tengan fechas válidas (esto evita que Altair falle)
         df_t['Start'] = pd.to_datetime(df_t['Start'], dayfirst=True, errors='coerce')
         df_t['End'] = pd.to_datetime(df_t['End'], dayfirst=True, errors='coerce')
-        df_t = df_t.dropna(subset=['Start', 'End'])
 
-        # 2. Filtrado por nivel (Manteniendo el orden original del Sheet)
+        # --- CÁLCULO AUTOMÁTICO DE FECHAS (Jerarquía Nivel 2 -> 1 -> 0) ---
+        # Creamos identificadores para saber a qué padre (L0 o L1) pertenece cada fila
+        df_t['L0_idx'] = pd.Series(df_t.index).where(df_t['Level'] == 0).ffill()
+        df_t['L1_idx'] = pd.Series(df_t.index).where(df_t['Level'] == 1).ffill()
+
+        # 1. Calcular fechas del Nivel 1 en base a sus hijos Nivel 2
+        l2_tasks = df_t[df_t['Level'] == 2]
+        if not l2_tasks.empty:
+            l1_start = l2_tasks.groupby('L1_idx')['Start'].min()
+            l1_end = l2_tasks.groupby('L1_idx')['End'].max()
+            for idx in l1_start.index:
+                if pd.notna(idx):
+                    df_t.loc[idx, 'Start'] = l1_start[idx]
+                    df_t.loc[idx, 'End'] = l1_end[idx]
+
+        # 2. Calcular fechas del Nivel 0 en base a todas las tareas por debajo de él
+        children = df_t[df_t['Level'] > 0]
+        if not children.empty:
+            l0_start = children.groupby('L0_idx')['Start'].min()
+            l0_end = children.groupby('L0_idx')['End'].max()
+            for idx in l0_start.index:
+                if pd.notna(idx):
+                    df_t.loc[idx, 'Start'] = l0_start[idx]
+                    df_t.loc[idx, 'End'] = l0_end[idx]
+
+        # --- ELIMINAR TAREAS HUÉRFANAS ---
+        # Ahora que calculamos las fechas, si algún nivel 0 o 1 sigue sin fechas
+        # (porque no tiene subtareas y tampoco fechas manuales), lo quitamos para no romper la gráfica.
+        df_t = df_t.dropna(subset=['Start', 'End']).copy()
+
+        # 2. Filtrado por nivel (Manteniendo el orden original)
         df_p = df_t[df_t['Level'] <= prof].copy()
 
         if not df_p.empty:
-            # IMPORTANTE: NO usamos sort_values por fecha para no desordenar el Excel.
-            # Creamos un ID secuencial basado estrictamente en el orden que venía del Sheet.
             df_p['plot_id'] = range(len(df_p))
             
-            # Formateo visual del nombre de la tarea
+            # Formateo visual
             df_p['Display'] = df_p.apply(lambda x: "\xa0" * 6 * int(x['Level']) + str(x['Task']), axis=1)
             
-            # Altura proporcional al número de tareas
             h_dinamica = max(len(df_p) * 30, 150)
 
             # --- GRÁFICO ALTAIR ---
-            # Usamos 'plot_id' para el eje Y, pero le decimos que use el nombre de la tarea como etiqueta
             base = alt.Chart(df_p).encode(
                 y=alt.Y('plot_id:O', axis=None, sort='ascending')
             )
@@ -242,13 +264,51 @@ if ws_tareas:
 
             st.altair_chart(alt.hconcat(text_layer, bars), use_container_width=False)
         else:
-            st.info("Selecciona un nivel superior o verifica que las tareas tengan fechas en el Excel.")
+            st.info("No hay tareas con fechas asignadas o subtareas configuradas para mostrar la gráfica.")
 
         # --- GESTIÓN DE TAREAS (DATA EDITOR) ---
         st.subheader("📝 Gestión de Tareas")
-        df_t_edit = st.data_editor(df_t, hide_index=True, use_container_width=True)
-        # ... resto de tus botones de sincronizar y añadir ...
+        # Mostramos las fechas en el editor pero las reformateamos a string para que no de error
+        df_t_show = df_t.copy()
+        df_t_show['Start'] = df_t_show['Start'].dt.strftime('%d/%m/%Y')
+        df_t_show['End'] = df_t_show['End'].dt.strftime('%d/%m/%Y')
+        
+        # Eliminamos columnas auxiliares creadas para el cálculo
+        cols_to_drop = [c for c in ['L0_idx', 'L1_idx', 'plot_id', 'Display'] if c in df_t_show.columns]
+        df_t_show = df_t_show.drop(columns=cols_to_drop)
 
+        df_t_edit = st.data_editor(df_t_show, hide_index=True, use_container_width=True)
+        
+        if st.button("💾 Sincronizar Tareas"):
+            ws_tareas.clear()
+            ws_tareas.update([df_t_edit.columns.values.tolist()] + df_t_edit.values.tolist())
+            st.rerun()
+
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.expander("➕ Añadir Tarea"):
+                with st.form("f_t"):
+                    nt = st.text_input("Tarea")
+                    ne = st.text_input("Empresa")
+                    nl = st.selectbox("Nivel", [0,1,2])
+                    if st.form_submit_button("Agregar"):
+                        # Se añade la fila. Si es nivel 0 o 1, puede ir sin fechas inicialmente (0)
+                        ws_tareas.append_row([len(df_t), nt, nl, 0, ne, "", ""])
+                        st.rerun()
+        with c2:
+            with st.expander("🗑️ Eliminar Tarea"):
+                t_b = st.selectbox("Tarea", ["---"] + df_t['Task'].tolist())
+                if st.button("Confirmar Borrado"):
+                    df_f = df_t[df_t['Task'] != t_b].copy()
+                    df_f['id'] = range(len(df_f))
+                    df_f['Start'] = df_f['Start'].dt.strftime('%d/%m/%Y')
+                    df_f['End'] = df_f['End'].dt.strftime('%d/%m/%Y')
+                    cols_to_drop_f = [c for c in ['L0_idx', 'L1_idx', 'plot_id', 'Display'] if c in df_f.columns]
+                    df_f = df_f.drop(columns=cols_to_drop_f)
+                    
+                    ws_tareas.clear()
+                    ws_tareas.update([df_f.columns.values.tolist()] + df_f.values.tolist())
+                    st.rerun()
 # --- 4. RED E IPs ---
 
 st.header("🌐 Configuración de Red e IPs")
