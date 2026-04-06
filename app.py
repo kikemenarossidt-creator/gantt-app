@@ -343,11 +343,13 @@ def render_gantt(df: pd.DataFrame, max_level: int):
         x=alt.X("Start:T", title="Cronograma", axis=alt.Axis(format="%d/%m/%Y")),
         x2="End:T",
         color=alt.Color(
-            "Level:N",
+            "Level:Q",
             scale=alt.Scale(
-                domain=["0", "1", "2"],
+                domain=[0, 1, 2],
                 range=["#1b4332", "#2d6a4f", "#95d5b2"],
             ),
+            legend=alt.Legend(title="Nivel"),
+        ),
             legend=alt.Legend(title="Nivel"),
         ),
         tooltip=[
