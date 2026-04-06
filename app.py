@@ -15,6 +15,7 @@ HOY = pd.Timestamp.today().normalize()
 
 TASK_COLUMNS = ["id", "Task", "Level", "DependsOn", "DurationDays", "Start", "End", "Empresa a Cargo"]
 RED_COLUMNS = ["PROVEEDOR", "REFERENCIA", "MARCA", "USO", "DIRECCION IP", "ESTADO"]
+CREDS_COLUMNS = ["EMPRESA", "PLATAFORMA", "USUARIO", "CONTRASEÑA"]
 HITOS_COLUMNS = ["TIPO", "HITO", "PORCENTAJE", "PAGADO"]
 SPARE_COLUMNS = ["CATEGORIA", "DESCRIPCION", "UNIDADES", "EN_STOCK"]
 
@@ -34,11 +35,20 @@ def get_client():
     return gspread.authorize(creds)
 
 def read_sheet(name):
-    ws = get_client().open_by_key(SHEET_ID).worksheet(name)
-    data = ws.get_all_values()
-    if len(data) <= 1:
-        return pd.DataFrame(columns=data[0] if data else [])
-    return pd.DataFrame(data[1:], columns=data[0])
+    try:
+        ws = get_client().open_by_key(SHEET_ID).worksheet(name)
+        data = ws.get_all_values()
+
+        if len(data) <= 1:
+            return pd.DataFrame(columns=data[0] if data else [])
+
+        df = pd.DataFrame(data[1:], columns=data[0])
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Error leyendo hoja '{name}'")
+        st.exception(e)
+        return pd.DataFrame()
 
 def write_sheet(name, df):
     ws = get_client().open_by_key(SHEET_ID).worksheet(name)
@@ -118,7 +128,7 @@ def calc_dependencies(df):
 def rollup(df):
     df = df.copy()
 
-    # nivel 1 desde nivel 2
+    # nivel 1 desde nivel 2, hasta siguiente nivel 1 o nivel 0
     for i, row in df.iterrows():
         if row["Level"] == 1:
             next_l1 = next((j for j in df.index if j > i and df.loc[j, "Level"] == 1), len(df))
@@ -132,11 +142,10 @@ def rollup(df):
                 df.at[i, "Start"] = children["Start"].min()
                 df.at[i, "End"] = children["End"].max()
 
-    # nivel 0 desde nivel 1
+    # nivel 0 desde nivel 1, hasta siguiente nivel 0
     for i, row in df.iterrows():
         if row["Level"] == 0:
             next_l0 = next((j for j in df.index if j > i and df.loc[j, "Level"] == 0), len(df))
-
             children = df.iloc[i + 1:next_l0]
             children = children[children["Level"] == 1]
 
@@ -150,6 +159,7 @@ def compute_gantt(df):
     df = calc_dependencies(df)
     df = rollup(df)
     df["Completed"] = df["End"].apply(lambda x: pd.notna(x) and x < HOY)
+    df["CompletedText"] = df["Completed"].apply(lambda x: "Sí" if x else "No")
     return df
 
 # ==========================================================
@@ -168,38 +178,27 @@ def render_gantt(df, level):
     df["row"] = range(len(df))
     df["row_str"] = df["row"].astype(str)
     df["TaskLabel"] = df.apply(lambda r: ("    " * int(r["Level"])) + str(r["Task"]), axis=1)
+    height = max(220, len(df) * 32)
 
     base = alt.Chart(df).encode(
         y=alt.Y("row_str:O", axis=None, sort=df["row_str"].tolist())
     )
 
     labels_l0 = base.transform_filter(alt.datum.Level == 0).mark_text(
-        align="left",
-        dx=-6,
-        fontWeight="bold",
-        fontSize=14,
-        color="#0d3b66"
+        align="left", dx=-6, fontWeight="bold", fontSize=14, color="#0d3b66"
     ).encode(text="TaskLabel:N")
 
     labels_l1 = base.transform_filter(alt.datum.Level == 1).mark_text(
-        align="left",
-        dx=-6,
-        fontWeight="bold",
-        fontSize=12,
-        color="#1d3557"
+        align="left", dx=-6, fontWeight="bold", fontSize=12, color="#1d3557"
     ).encode(text="TaskLabel:N")
 
     labels_l2 = base.transform_filter(alt.datum.Level == 2).mark_text(
-        align="left",
-        dx=-6,
-        fontStyle="italic",
-        fontSize=11,
-        color="#457b9d"
+        align="left", dx=-6, fontStyle="italic", fontSize=11, color="#457b9d"
     ).encode(text="TaskLabel:N")
 
     labels = alt.layer(labels_l0, labels_l1, labels_l2).properties(
         width=350,
-        height=max(200, len(df) * 32)
+        height=height
     )
 
     bars = base.mark_bar(cornerRadius=4).encode(
@@ -207,10 +206,7 @@ def render_gantt(df, level):
         x2="End:T",
         color=alt.Color(
             "Level:Q",
-            scale=alt.Scale(
-                domain=[0, 1, 2],
-                range=["#1b4332", "#2d6a4f", "#95d5b2"]
-            ),
+            scale=alt.Scale(domain=[0, 1, 2], range=["#1b4332", "#2d6a4f", "#95d5b2"]),
             legend=alt.Legend(title="Nivel")
         ),
         tooltip=[
@@ -222,10 +218,11 @@ def render_gantt(df, level):
             alt.Tooltip("DependsOn:N", title="Depende de"),
             alt.Tooltip("DurationDays:Q", title="Duración (días)"),
             alt.Tooltip("Empresa a Cargo:N", title="Responsable"),
+            alt.Tooltip("CompletedText:N", title="Completada"),
         ]
     ).properties(
         width=850,
-        height=max(200, len(df) * 32)
+        height=height
     )
 
     chart = alt.hconcat(labels, bars).resolve_scale(y="shared")
@@ -252,7 +249,6 @@ def progress_hitos(df):
         return 0
 
     tmp = df.copy()
-
     tmp["pct"] = (
         tmp["PORCENTAJE"]
         .astype(str)
@@ -260,12 +256,10 @@ def progress_hitos(df):
         .str.replace("%", "", regex=False)
         .str.replace(",", ".", regex=False)
     )
-
     tmp["pct"] = pd.to_numeric(tmp["pct"], errors="coerce").fillna(0)
 
     total = tmp["pct"].sum()
     paid = tmp.loc[tmp["PAGADO"].apply(to_bool), "pct"].sum()
-
     return paid / total if total > 0 else 0
 
 def progress_spares(df):
@@ -273,6 +267,140 @@ def progress_spares(df):
         return 0
     vals = df["EN_STOCK"].apply(to_bool)
     return vals.mean() if len(vals) > 0 else 0
+
+# ==========================================================
+# SECCIONES EXTRA
+# ==========================================================
+def render_ficha_tecnica():
+    with st.expander("📋 Ficha técnica del proyecto", expanded=False):
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.subheader("📍 Ubicación y contacto")
+            st.text_input("Nombre del Proyecto", "Planta Solar Atacama X")
+            st.text_input("Dirección", "Km 45, Ruta 5 Norte")
+            st.text_area("Teléfonos de despacho", "+56 7 1263 5132\n+56 7 1263 5133", height=80)
+
+        with c2:
+            st.subheader("⚡ Datos técnicos")
+            st.number_input("Potencia Pico (MWp)", value=10.5)
+            st.text_input("Inversores", "SUNGROW SG250HX")
+            st.text_input("Paneles", "JINKO Solar 550W")
+
+        with c3:
+            st.subheader("🏢 CGE / Seguridad")
+            st.text_input("Nombre proyecto para CGE", "Maule X")
+            st.text_input("Nombre del alimentador", "DUAO 15 kV")
+            st.text_input("Proveedor Seguridad", "Prosegur")
+
+def render_tareas_editor(tareas):
+    st.subheader("📝 Gestión de Tareas")
+
+    editable = tareas.copy()
+    editable["Start"] = editable["Start"].apply(fmt_date)
+    editable["End"] = editable["End"].apply(fmt_date)
+
+    edited = st.data_editor(
+        editable[TASK_COLUMNS],
+        use_container_width=True,
+        hide_index=True,
+        key="tasks_editor"
+    )
+
+    if st.button("💾 Guardar tareas"):
+        to_save = edited.copy()
+        write_sheet("Tareas", to_save[TASK_COLUMNS])
+        st.success("Tareas guardadas")
+        st.rerun()
+
+def render_red():
+    st.header("🌐 Configuración de Red")
+
+    df = ensure_columns(read_sheet("Red"), RED_COLUMNS)
+    if not df.empty and "ESTADO" in df.columns:
+        df["ESTADO"] = df["ESTADO"].apply(to_bool)
+
+    edited = st.data_editor(
+        df[RED_COLUMNS],
+        use_container_width=True,
+        hide_index=True,
+        key="red_editor",
+        column_config={
+            "ESTADO": st.column_config.CheckboxColumn("Comunicando")
+        }
+    )
+
+    if st.button("💾 Guardar Red"):
+        out = edited.copy()
+        out["ESTADO"] = out["ESTADO"].apply(lambda x: "TRUE" if bool(x) else "FALSE")
+        write_sheet("Red", out[RED_COLUMNS])
+        st.success("Red guardada")
+        st.rerun()
+
+def render_creds():
+    st.header("🔑 Credenciales")
+
+    df = ensure_columns(read_sheet("Credenciales"), CREDS_COLUMNS)
+
+    edited = st.data_editor(
+        df[CREDS_COLUMNS],
+        use_container_width=True,
+        hide_index=True,
+        key="creds_editor"
+    )
+
+    if st.button("💾 Guardar Credenciales"):
+        write_sheet("Credenciales", edited[CREDS_COLUMNS])
+        st.success("Credenciales guardadas")
+        st.rerun()
+
+def render_hitos():
+    st.header("💰 Hitos de Pago")
+
+    df = ensure_columns(read_sheet("Hitos"), HITOS_COLUMNS)
+    if not df.empty and "PAGADO" in df.columns:
+        df["PAGADO"] = df["PAGADO"].apply(to_bool)
+
+    edited = st.data_editor(
+        df[HITOS_COLUMNS],
+        use_container_width=True,
+        hide_index=True,
+        key="hitos_editor",
+        column_config={
+            "PAGADO": st.column_config.CheckboxColumn("Pagado")
+        }
+    )
+
+    if st.button("💾 Guardar Hitos"):
+        out = edited.copy()
+        out["PAGADO"] = out["PAGADO"].apply(lambda x: "TRUE" if bool(x) else "FALSE")
+        write_sheet("Hitos", out[HITOS_COLUMNS])
+        st.success("Hitos guardados")
+        st.rerun()
+
+def render_spares():
+    st.header("📦 Repuestos")
+
+    df = ensure_columns(read_sheet("Repuestos"), SPARE_COLUMNS)
+    if not df.empty and "EN_STOCK" in df.columns:
+        df["EN_STOCK"] = df["EN_STOCK"].apply(to_bool)
+
+    edited = st.data_editor(
+        df[SPARE_COLUMNS],
+        use_container_width=True,
+        hide_index=True,
+        key="spares_editor",
+        column_config={
+            "EN_STOCK": st.column_config.CheckboxColumn("En stock")
+        }
+    )
+
+    if st.button("💾 Guardar Repuestos"):
+        out = edited.copy()
+        out["EN_STOCK"] = out["EN_STOCK"].apply(lambda x: "TRUE" if bool(x) else "FALSE")
+        write_sheet("Repuestos", out[SPARE_COLUMNS])
+        st.success("Repuestos guardados")
+        st.rerun()
 
 # ==========================================================
 # APP
@@ -308,20 +436,23 @@ with col4:
 
 st.divider()
 
+render_ficha_tecnica()
+
+st.header("📅 Cronograma de Obra")
 level = st.radio("Nivel", [0, 1, 2], horizontal=True)
 render_gantt(tareas, level)
 
 st.divider()
+render_tareas_editor(tareas)
 
-edited = st.data_editor(
-    tareas.assign(
-        Start=tareas["Start"].apply(fmt_date) if "Start" in tareas.columns else "",
-        End=tareas["End"].apply(fmt_date) if "End" in tareas.columns else ""
-    ),
-    use_container_width=True,
-    hide_index=True
-)
+st.divider()
+render_red()
 
-if st.button("Guardar tareas"):
-    write_sheet("Tareas", edited)
-    st.rerun()
+st.divider()
+render_creds()
+
+st.divider()
+render_hitos()
+
+st.divider()
+render_spares()
