@@ -227,9 +227,23 @@ if ws_tareas:
         df_plot = df_calc.dropna(subset=["Start", "End"]).copy()
         df_p = df_plot[df_plot["Level"] <= prof].copy()
 
+       if not df_p.empty:
+    df_p = df_p.copy().reset_index(drop=True)
+
+    # Asegurar columnas mínimas
+    if "Task" not in df_p.columns:
+        st.error("La hoja Tareas no tiene la columna 'Task'.")
+    else:
+        if "Empresa a Cargo" not in df_p.columns:
+            df_p["Empresa a Cargo"] = ""
+
+        df_p["Task"] = df_p["Task"].fillna("").astype(str)
+        df_p["Empresa a Cargo"] = df_p["Empresa a Cargo"].fillna("").astype(str)
+
+        # Quitar filas vacías problemáticas
+        df_p = df_p[df_p["Task"].str.strip() != ""].copy()
+
         if not df_p.empty:
-            # Mantener orden original de la tabla
-            df_p = df_p.copy()
             df_p["row_pos"] = range(len(df_p))
             df_p["row_pos_str"] = df_p["row_pos"].astype(str)
 
@@ -240,8 +254,67 @@ if ws_tareas:
 
             h_dinamica = max(len(df_p) * 30, 150)
 
-            # Primera fila arriba
-            orden_y = list(reversed([str(i) for i in df_p["row_pos"].tolist()]))
+            # Orden natural de la tabla: primera fila arriba
+            orden_y = [str(i) for i in df_p["row_pos"].tolist()]
+
+            base = alt.Chart(df_p).encode(
+                y=alt.Y("row_pos_str:O", axis=None, sort=orden_y)
+            )
+
+            text_layer = alt.layer(
+                base.transform_filter(alt.datum.Level == 0).mark_text(
+                    align="left",
+                    fontWeight="bold",
+                    fontSize=13
+                ),
+                base.transform_filter(alt.datum.Level == 1).mark_text(
+                    align="left",
+                    fontSize=12
+                ),
+                base.transform_filter(alt.datum.Level == 2).mark_text(
+                    align="left",
+                    fontStyle="italic",
+                    color="gray"
+                )
+            ).encode(
+                text="Display:N"
+            ).properties(
+                width=350,
+                height=h_dinamica
+            )
+
+            bars = base.mark_bar(cornerRadius=3).encode(
+                x=alt.X("Start:T", axis=alt.Axis(format="%d/%m", title="Cronograma")),
+                x2="End:T",
+                color=alt.Color(
+                    "Level:N",
+                    scale=alt.Scale(range=["#1a5276", "#3498db", "#aed6f1"]),
+                    legend=None
+                ),
+                tooltip=[
+                    alt.Tooltip("Task:N", title="Tarea"),
+                    alt.Tooltip("Start:T", title="Inicio", format="%d/%m/%Y"),
+                    alt.Tooltip("End:T", title="Fin", format="%d/%m/%Y"),
+                    alt.Tooltip("Empresa a Cargo:N", title="Responsable")
+                ]
+            ).properties(
+                width=750,
+                height=h_dinamica
+            )
+
+            st.altair_chart(
+                alt.hconcat(text_layer, bars).resolve_scale(y="shared"),
+                use_container_width=False
+            )
+        else:
+            st.info("No hay tareas válidas para mostrar en la gráfica.")
+else:
+    st.info("No hay tareas con fechas asignadas o subtareas configuradas para mostrar la gráfica.")
+
+            h_dinamica = max(len(df_p) * 30, 150)
+
+          # Primera fila arriba
+orden_y = [str(i) for i in df_p["row_pos"].tolist()]
 
             base = alt.Chart(df_p).encode(
                 y=alt.Y("row_pos_str:O", axis=None, sort=orden_y)
