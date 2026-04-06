@@ -111,36 +111,7 @@ def pct_to_float(value) -> float:
         st.progress(min(hitos_progress, 1.0))
     with col4:
         st.write(f"**Repuestos en Stock: {spares_progress * 100:.1f}%**")
-        st.progress(min(spares_progress, 1.0)),
-                        "DESCRIPCION": descripcion,
-                        "UNIDADES": int(unidades),
-                        "EN_STOCK": "TRUE" if en_stock else "FALSE",
-                    }])
-                    base_df = df.copy()
-                    if "EN_STOCK" in base_df.columns:
-                        base_df["EN_STOCK"] = base_df["EN_STOCK"].apply(lambda x: "TRUE" if bool(x) else "FALSE")
-                    write_sheet("Repuestos", pd.concat([base_df, new_row], ignore_index=True)[SPARE_COLUMNS])
-                    st.success("Repuesto añadido.")
-                    st.rerun()
-
-
-# ==========================================================
-# APP PRINCIPAL
-# ==========================================================
-try:
-    tareas_df = load_tasks()
-    hitos_df = ensure_columns(read_sheet("Hitos"), HITOS_COLUMNS)
-
-    hitos_progress = calculate_hitos_progress(hitos_df)
-    tareas_progress = calculate_project_progress(tareas_df)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write(f"**Payment Milestones: {hitos_progress * 100:.1f}%**")
-        st.progress(min(hitos_progress, 1.0))
-    with col2:
-        st.write(f"**Avance Obra: {tareas_progress * 100:.1f}%**")
-        st.progress(min(tareas_progress, 1.0))
+        st.progress(min(spares_progress, 1.0))
 
     st.divider()
     render_ficha_tecnica()
