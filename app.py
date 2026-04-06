@@ -88,7 +88,7 @@ def pct_to_float(value) -> float:
     text = str(value).strip().replace("%", "").replace(",", ".")
     if text == "":
         return 0.0
-    try:
+   try:
     tareas_df = load_tasks()
     hitos_df = ensure_columns(read_sheet("Hitos"), HITOS_COLUMNS)
     red_df = ensure_columns(read_sheet("Red"), RED_COLUMNS)
@@ -100,24 +100,31 @@ def pct_to_float(value) -> float:
     spares_progress = calculate_spares_progress(spares_df)
 
     col1, col2, col3, col4 = st.columns(4)
+
     with col1:
         st.write(f"**Avance Obra: {tareas_progress * 100:.1f}%**")
         st.progress(min(tareas_progress, 1.0))
+
     with col2:
         st.write(f"**Configuración de Red: {red_progress * 100:.1f}%**")
         st.progress(min(red_progress, 1.0))
+
     with col3:
         st.write(f"**Hitos de Pago: {hitos_progress * 100:.1f}%**")
         st.progress(min(hitos_progress, 1.0))
+
     with col4:
         st.write(f"**Repuestos en Stock: {spares_progress * 100:.1f}%**")
         st.progress(min(spares_progress, 1.0))
 
     st.divider()
+
     render_ficha_tecnica()
+
     st.divider()
 
     st.header("📅 Cronograma de Obra")
+
     detail = st.radio(
         "🔍 Nivel de detalle del cronograma",
         options=[0, 1, 2],
@@ -128,6 +135,7 @@ def pct_to_float(value) -> float:
     render_gantt(tareas_df, detail)
 
     st.subheader("📝 Gestión de Tareas")
+
     tasks_editor_df = tareas_df.copy()
     tasks_editor_df["Start"] = tasks_editor_df["Start"].apply(fmt_date)
     tasks_editor_df["End"] = tasks_editor_df["End"].apply(fmt_date)
@@ -138,30 +146,30 @@ def pct_to_float(value) -> float:
         use_container_width=True,
         key="tasks_editor",
         column_config={
-            "id": st.column_config.NumberColumn("ID", step=1, min_value=0),
+            "id": st.column_config.NumberColumn("ID"),
             "Level": st.column_config.SelectboxColumn("Nivel", options=[0, 1, 2]),
-            "DependsOn": st.column_config.TextColumn("Depende de (IDs)"),
-            "DurationDays": st.column_config.NumberColumn("Duración (días)", step=1, min_value=0),
+            "DependsOn": st.column_config.TextColumn("Depende de"),
+            "DurationDays": st.column_config.NumberColumn("Duración"),
         },
-        column_order=TASK_COLUMNS,
     )
 
     if st.button("💾 Sincronizar Tareas"):
         save_tasks_editor(edited_tasks)
-        st.success("Tareas sincronizadas con Google Sheets.")
         st.rerun()
 
     st.divider()
     render_red()
+
     st.divider()
     render_creds()
+
     st.divider()
     render_hitos(hitos_df)
+
     st.divider()
     render_spares()
 
 except Exception as e:
-    st.error("No se pudo cargar la aplicación.")
+    st.error("Error en la app")
     st.exception(e)
-    st.error("No se pudo cargar la aplicación.")
-    st.exception(e)
+
