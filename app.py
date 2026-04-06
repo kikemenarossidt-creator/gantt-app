@@ -311,62 +311,9 @@ def render_gantt(df: pd.DataFrame, max_level: int):
         y=alt.Y("row_key:O", axis=None, sort=order)
     )
 
-    # Etiquetas de la izquierda diferenciadas por nivel
+    # Etiquetas izquierda por nivel
     labels_l0 = base.transform_filter(alt.datum.Level == 0).mark_text(
-        align="left",
-        dx=-6,
-        fontWeight="bold",
-        fontSize=14,
-        color="#0d3b66",
-    ).encode(text="DisplayTask:N")
-
-    labels_l1 = base.transform_filter(alt.datum.Level == 1).mark_text(
-        align="left",
-        dx=-6,
-        fontWeight="bold",
-        fontSize=12,
-        color="#1d3557",
-    ).encode(text="DisplayTask:N")
-
-    labels_l2 = base.transform_filter(alt.datum.Level == 2).mark_text(
-        align="left",
-        dx=-6,
-        fontStyle="italic",
-        fontSize=11,
-        color="#457b9d",
-    ).encode(text="DisplayTask:N")
-
-    labels = alt.layer(labels_l0, labels_l1, labels_l2).properties(width=420, height=height)
-
-    # Barras con color distinto por nivel
-    bars = base.mark_bar(cornerRadius=4).encode(
-        x=alt.X("Start:T", title="Cronograma", axis=alt.Axis(format="%d/%m/%Y")),
-        x2="End:T",
-        color=alt.Color(
-            "Level:Q",
-            scale=alt.Scale(
-                domain=[0, 1, 2],
-                range=["#1b4332", "#2d6a4f", "#95d5b2"],
-            ),
-            legend=alt.Legend(title="Nivel"),
-        ),
-            legend=alt.Legend(title="Nivel"),
-        ),
-        tooltip=[
-            alt.Tooltip("id:Q", title="ID"),
-            alt.Tooltip("Task:N", title="Tarea"),
-            alt.Tooltip("Level:N", title="Nivel"),
-            alt.Tooltip("Start:T", title="Inicio", format="%d/%m/%Y"),
-            alt.Tooltip("End:T", title="Fin", format="%d/%m/%Y"),
-            alt.Tooltip("DependsOn:N", title="Depende de"),
-            alt.Tooltip("DurationDays:Q", title="Duración (días)"),
-            alt.Tooltip("Empresa a Cargo:N", title="Responsable"),
-            alt.Tooltip("CompletedText:N", title="Completada"),
-        ],
-    ).properties(width=900, height=height)
-
-    chart = alt.hconcat(labels, bars).resolve_scale(y="shared")
-    st.altair_chart(chart, use_container_width=False)
+        align="left", dx=-6, fontWeight="bo
 
 
 # ==========================================================
