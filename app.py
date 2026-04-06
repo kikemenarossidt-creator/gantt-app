@@ -387,13 +387,17 @@ def calculate_hitos_progress(df_hitos: pd.DataFrame) -> float:
 def calculate_project_progress(tasks_df: pd.DataFrame) -> float:
     if tasks_df.empty:
         return 0.0
+
     calc = calculate_full_gantt(tasks_df)
-    leafs = calc[calc["Level"] == 2].copy()
-    if leafs.empty:
-        leafs = calc[calc["Level"] == calc["Level"].max()].copy()
-    if leafs.empty:
+
+    # Avance de obra = nº de tareas finalizadas / nº total de tareas con fecha de fin
+    tasks_with_end = calc[calc["End"].notna()].copy()
+    if tasks_with_end.empty:
         return 0.0
-    return leafs["Completed"].mean()
+
+    completed_count = tasks_with_end["Completed"].sum()
+    total_count = len(tasks_with_end)
+    return completed_count / total_count
 
 
 # ==========================================================
