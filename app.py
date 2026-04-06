@@ -146,60 +146,10 @@ def pct_to_float(value) -> float:
         column_order=TASK_COLUMNS,
     )
 
-    a, b, c = st.columns(3)
-    with a:
-        if st.button("💾 Sincronizar Tareas"):
-            save_tasks_editor(edited_tasks)
-            st.success("Tareas sincronizadas con Google Sheets.")
-            st.rerun()
-
-    with b:
-        with st.expander("➕ Añadir Tarea"):
-            st.caption("Opción 1: poner Inicio y Fin manualmente. Opción 2: poner Depende de + Duración.")
-            with st.form("add_task_form"):
-                t1, t2, t3 = st.columns(3)
-                new_id = t1.number_input("ID", min_value=0, value=(int(tareas_df["id"].max()) + 1) if not tareas_df.empty else 1, step=1)
-                new_task = t2.text_input("Tarea")
-                new_level = t3.selectbox("Nivel", [0, 1, 2])
-
-                t4, t5, t6 = st.columns(3)
-                new_depends = t4.text_input("Depende de (IDs)")
-                new_duration = t5.number_input("Duración (días)", min_value=0, value=0, step=1)
-                new_empresa = t6.text_input("Empresa a cargo")
-
-                t7, t8 = st.columns(2)
-                new_start = t7.text_input("Inicio manual (dd/mm/yyyy)")
-                new_end = t8.text_input("Fin manual (dd/mm/yyyy)")
-
-                submitted = st.form_submit_button("Añadir")
-                if submitted:
-                    new_row = pd.DataFrame([{
-                        "id": int(new_id),
-                        "Task": new_task,
-                        "Level": int(new_level),
-                        "DependsOn": str(new_depends).strip(),
-                        "DurationDays": int(new_duration),
-                        "Start": new_start,
-                        "End": new_end,
-                        "Empresa a Cargo": new_empresa,
-                    }])
-                    to_save = pd.concat([tasks_editor_df, new_row], ignore_index=True)
-                    save_tasks_editor(to_save)
-                    st.success("Tarea añadida.")
-                    st.rerun()
-
-    with c:
-        with st.expander("🗑️ Eliminar Tarea"):
-            delete_options = [""] + [f"{row['id']} - {row['Task']}" for _, row in tareas_df.iterrows()]
-            selected = st.selectbox("Selecciona tarea", delete_options)
-            if st.button("Confirmar borrado") and selected:
-                delete_id = int(selected.split(" - ")[0])
-                filtered = tareas_df[tareas_df["id"] != delete_id].copy()
-                filtered["Start"] = filtered["Start"].apply(fmt_date)
-                filtered["End"] = filtered["End"].apply(fmt_date)
-                save_tasks_editor(filtered)
-                st.success("Tarea eliminada.")
-                st.rerun()
+    if st.button("💾 Sincronizar Tareas"):
+        save_tasks_editor(edited_tasks)
+        st.success("Tareas sincronizadas con Google Sheets.")
+        st.rerun()
 
     st.divider()
     render_red()
@@ -211,5 +161,7 @@ def pct_to_float(value) -> float:
     render_spares()
 
 except Exception as e:
+    st.error("No se pudo cargar la aplicación.")
+    st.exception(e)
     st.error("No se pudo cargar la aplicación.")
     st.exception(e)
